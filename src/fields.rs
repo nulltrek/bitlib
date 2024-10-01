@@ -2,9 +2,19 @@ use core::ops;
 use std::cmp::PartialEq;
 use std::fmt;
 
-#[derive(PartialEq, Debug)]
+pub trait Pow {
+    fn pow(self, exponent: i32) -> Self;
+}
+
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub struct FieldElement<const PRIME: u32> {
     num: i64,
+}
+
+impl<const PRIME: u32> Default for FieldElement<PRIME> {
+    fn default() -> Self {
+        Self { num: 0 }
+    }
 }
 
 impl<const PRIME: u32> FieldElement<PRIME> {
@@ -81,18 +91,18 @@ impl<const PRIME: u32> ops::Mul<FieldElement<PRIME>> for FieldElement<PRIME> {
     }
 }
 
-impl<const PRIME: u32> ops::Mul<u64> for FieldElement<PRIME> {
+impl<const PRIME: u32> ops::Mul<i64> for FieldElement<PRIME> {
     type Output = Self;
 
-    fn mul(self, other: u64) -> Self {
+    fn mul(self, other: i64) -> Self {
         Self {
             num: (self.num * other as i64) % PRIME as i64,
         }
     }
 }
 
-impl<const PRIME: u32> FieldElement<PRIME> {
-    pub fn pow(self, exponent: i32) -> FieldElement<PRIME> {
+impl<const PRIME: u32> Pow for FieldElement<PRIME> {
+    fn pow(self, exponent: i32) -> FieldElement<PRIME> {
         let n = exponent.rem_euclid(PRIME as i32 - 1);
         return FieldElement {
             num: self.num.pow(n as u32) % PRIME as i64,

@@ -1,134 +1,299 @@
 use core::ops;
 use std::fmt;
 
+use crate::fields;
+
+impl fields::Pow for i64 {
+    fn pow(self, exponent: i32) -> i64 {
+        self.pow(exponent as u32)
+    }
+}
+
+/// Defines a curve in the form:
+///    y^2 = x^3 + ax + b
+///
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub struct Curve<T> {
+    a: T,
+    b: T,
+}
+
+impl<T> fmt::Display for Curve<T>
+where
+    T: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}_{}", self.a, self.b)
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub enum Coords<T> {
+    Inf,
+    Def { x: T, y: T },
+}
+
+impl<T> fmt::Display for Coords<T>
+where
+    T: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Coords::Inf => write!(f, "inf"),
+            Coords::Def { x, y } => write!(f, "{}, {}", x, y),
+        }
+    }
+}
+
 /// The point only supports curves in the form:
 ///    y^2 = x^3 + Ax + B
 ///
 #[derive(PartialEq, Debug)]
-pub enum Point<const A: i64, const B: i64> {
-    Inf,
-    Def { x: i64, y: i64 },
+pub struct Point<T>
+where
+    T: ops::Add<T, Output = T>
+        + ops::Add<i64, Output = T>
+        + ops::Sub<T, Output = T>
+        + ops::Sub<i64>
+        + ops::Mul<T, Output = T>
+        + ops::Mul<i64, Output = T>
+        + ops::Div<T, Output = T>
+        + fields::Pow
+        + PartialEq
+        + Default
+        + std::fmt::Display
+        + Copy,
+{
+    curve: Curve<T>,
+    coords: Coords<T>,
 }
 
-impl<const A: i64, const B: i64> Point<A, B> {
-    pub fn new(x: i64, y: i64) -> Point<A, B> {
-        if y * y != x.pow(3) + A * x + B {
-            panic!(
-                "The point ({}, {}) is not on the curve ({}, {})",
-                x, y, A, B
-            )
+impl<T> Point<T>
+where
+    T: ops::Add<T, Output = T>
+        + ops::Add<i64, Output = T>
+        + ops::Sub<T, Output = T>
+        + ops::Sub<i64>
+        + ops::Mul<T, Output = T>
+        + ops::Mul<i64, Output = T>
+        + ops::Div<T, Output = T>
+        + fields::Pow
+        + PartialEq
+        + Default
+        + std::fmt::Display
+        + Copy,
+{
+    pub fn new(curve: Curve<T>, coords: Coords<T>) -> Point<T> {
+        match coords {
+            Coords::Inf => (),
+            Coords::Def { x, y } => {
+                if y * y != x.pow(3) + x * curve.a + curve.b {
+                    panic!(
+                        "The point ({}, {}) is not on the curve ({}, {})",
+                        x, y, curve.a, curve.b
+                    )
+                }
+            }
         }
-        return Point::Def { x, y };
+        Point { curve, coords }
     }
 }
 
-impl<const A: i64, const B: i64> fmt::Display for Point<A, B> {
+impl<T> fmt::Display for Point<T>
+where
+    T: ops::Add<T, Output = T>
+        + ops::Add<i64, Output = T>
+        + ops::Sub<T, Output = T>
+        + ops::Sub<i64>
+        + ops::Mul<T, Output = T>
+        + ops::Mul<i64, Output = T>
+        + ops::Div<T, Output = T>
+        + fields::Pow
+        + PartialEq
+        + Default
+        + std::fmt::Display
+        + Copy,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Point::Inf => write!(f, "Point(inf)_{}_{}", A, B),
-            Point::Def { x, y } => write!(f, "Point({}, {})_{}_{}", x, y, A, B),
-        }
+        write!(f, "Point({})_{}", self.curve, self.coords)
     }
 }
 
-impl<const A: i64, const B: i64> ops::Add<Point<A, B>> for Point<A, B> {
+impl<T> ops::Add<Point<T>> for Point<T>
+where
+    T: ops::Add<T, Output = T>
+        + ops::Add<i64, Output = T>
+        + ops::Sub<T, Output = T>
+        + ops::Sub<i64>
+        + ops::Mul<T, Output = T>
+        + ops::Mul<i64, Output = T>
+        + ops::Div<T, Output = T>
+        + fields::Pow
+        + PartialEq
+        + Default
+        + std::fmt::Display
+        + Copy,
+{
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
-        match self {
-            Point::Inf => other,
-            Point::Def {
-                x: self_x,
-                y: self_y,
-            } => match other {
-                Point::Inf => self,
-                Point::Def {
-                    x: other_x,
-                    y: other_y,
-                } => {
-                    // Points are equal, tangent to the curve at y = 0
-                    if self_x == other_x && self_y == 0 && other_y == 0 {
-                        return Point::Inf;
-                    }
-                    // Points are equal
-                    if self_x == other_x && self_y == other_y {
-                        let slope = (3 * self_x * self_x + A) / 2 * self_y;
-                        let x = slope * slope - 2 * self_x;
-                        let y = slope * (self_x - x) - self_y;
-                        return Point::new(x, y);
-                    }
-                    // Points are mirrored on X axis, forming a vertical line
-                    if self_x == other_x && self_y != other_y {
-                        return Point::Inf;
-                    }
-
-                    // Points are different
-                    let slope = (other_y - self_y) / (other_x - self_x);
-                    let x = slope * slope - self_x - other_x;
-                    let y = slope * (self_x - x) - self_y;
-                    return Self::new(x, y);
-                }
-            },
+        if self.curve != other.curve {
+            panic!(
+                "Curve parameters are different between {} and {}",
+                self, other
+            )
         }
+
+        let (self_x, self_y) = match self.coords {
+            Coords::Inf => return other,
+            Coords::Def { x, y } => (x, y),
+        };
+        let (other_x, other_y) = match other.coords {
+            Coords::Inf => return self,
+            Coords::Def { x, y } => (x, y),
+        };
+
+        if self_x == other_x && self_y == T::default() && other_y == T::default() {
+            return Self::new(self.curve, Coords::Inf);
+        }
+        // Points are equal
+        if self_x == other_x && self_y == other_y {
+            let slope = (self_x * self_x * 3 + self.curve.a) / (self_y * 2);
+            let x = slope * slope - self_x * 2;
+            let y = slope * (self_x - x) - self_y;
+            return Self::new(self.curve, Coords::Def { x, y });
+        }
+        // Points are mirrored on X axis, forming a vertical line
+        if self_x == other_x && self_y != other_y {
+            return Self::new(self.curve, Coords::Inf);
+        }
+
+        // Points are different
+        let slope = (other_y - self_y) / (other_x - self_x);
+        let x = slope * slope - self_x - other_x;
+        let y = slope * (self_x - x) - self_y;
+        return Self::new(self.curve, Coords::Def { x, y });
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::fields::FieldElement;
+
     use super::*;
+    use std::panic;
 
     #[test]
     #[should_panic]
     fn point_not_on_curve() {
-        Point::<5, 7>::new(5, 7);
+        Point::<i64>::new(Curve { a: 5, b: 7 }, Coords::Def { x: 5, y: 7 });
     }
 
     #[test]
     fn point_constructor() {
-        Point::<5, 7>::new(-1, -1);
-        Point::<5, 7>::new(18, 77);
+        let curve = Curve { a: 5, b: 7 };
+        Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 });
+        Point::<i64>::new(curve, Coords::Def { x: 18, y: 77 });
     }
 
     #[test]
     fn point_equality() {
-        assert_eq!(Point::<0, 7>::Inf, Point::<0, 7>::Inf);
-        assert_ne!(Point::<5, 7>::Inf, Point::<5, 7>::new(-1, -1));
-        assert_eq!(Point::<5, 7>::new(-1, -1), Point::<5, 7>::new(-1, -1));
-        assert_ne!(Point::<5, 7>::new(-1, -1), Point::<5, 7>::new(18, 77));
+        let curve = Curve { a: 0, b: 7 };
+        assert_eq!(
+            Point::<i64>::new(curve, Coords::Inf),
+            Point::new(curve, Coords::Inf)
+        );
+
+        let curve = Curve { a: 5, b: 7 };
+        assert_ne!(
+            Point::<i64>::new(curve, Coords::Inf),
+            Point::new(curve, Coords::Def { x: -1, y: -1 })
+        );
+        assert_eq!(
+            Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 }),
+            Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 })
+        );
+        assert_ne!(
+            Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 }),
+            Point::<i64>::new(curve, Coords::Def { x: 18, y: 77 })
+        );
     }
 
     #[test]
     fn point_sum() {
+        let curve = Curve { a: 5, b: 7 };
         assert_eq!(
-            Point::<5, 7>::Inf + Point::<5, 7>::new(-1, -1),
-            Point::<5, 7>::new(-1, -1)
+            Point::<i64>::new(curve, Coords::Inf)
+                + Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 }),
+            Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 })
         );
         assert_eq!(
-            Point::<5, 7>::new(-1, -1) + Point::<5, 7>::new(2, 5),
-            Point::<5, 7>::new(3, -7)
+            Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 })
+                + Point::<i64>::new(curve, Coords::Def { x: 2, y: 5 }),
+            Point::<i64>::new(curve, Coords::Def { x: 3, y: -7 })
         );
 
+        let curve = Curve { a: 1, b: 2 };
         // Points are equal, tangent to the curve at y = 0
         assert_eq!(
-            Point::<1, 2>::new(-1, 0) + Point::<1, 2>::new(-1, 0),
-            Point::<1, 2>::Inf
+            Point::<i64>::new(curve, Coords::Def { x: -1, y: 0 })
+                + Point::<i64>::new(curve, Coords::Def { x: -1, y: 0 }),
+            Point::<i64>::new(curve, Coords::Inf)
         );
+
+        let curve = Curve { a: 5, b: 7 };
         // Points are equal
         assert_eq!(
-            Point::<5, 7>::new(-1, -1) + Point::<5, 7>::new(-1, -1),
-            Point::<5, 7>::new(18, 77)
+            Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 })
+                + Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 }),
+            Point::<i64>::new(curve, Coords::Def { x: 18, y: 77 })
         );
 
+        let curve = Curve { a: 1, b: 4 };
         // Points are mirrored on X axis, forming a vertical line
         assert_eq!(
-            Point::<1, 4>::new(0, 2) + Point::<1, 4>::new(0, -2),
-            Point::<1, 4>::Inf
+            Point::<i64>::new(curve, Coords::Def { x: 0, y: 2 })
+                + Point::<i64>::new(curve, Coords::Def { x: 0, y: -2 }),
+            Point::<i64>::new(curve, Coords::Inf)
         );
 
+        let curve = Curve { a: 5, b: 7 };
         // Points are different
         assert_eq!(
-            Point::<5, 7>::new(2, 5) + Point::<5, 7>::new(-1, -1),
-            Point::<5, 7>::new(3, -7)
+            Point::<i64>::new(curve, Coords::Def { x: 2, y: 5 })
+                + Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 }),
+            Point::<i64>::new(curve, Coords::Def { x: 3, y: -7 })
         );
+    }
+
+    #[test]
+    fn point_valid_field_elements() {
+        let curve = Curve {
+            a: FieldElement::<223>::new(0),
+            b: FieldElement::<223>::new(7),
+        };
+
+        for pair in [(192, 105), (17, 56), (1, 193)].iter() {
+            let x = FieldElement::<223>::new(pair.0);
+            let y = FieldElement::<223>::new(pair.1);
+            Point::<FieldElement<223>>::new(curve, Coords::Def { x, y });
+        }
+    }
+
+    #[test]
+    fn point_invalid_field_elements() {
+        let curve = Curve {
+            a: FieldElement::<223>::new(0),
+            b: FieldElement::<223>::new(7),
+        };
+
+        for pair in [(200, 119), (42, 99)].iter() {
+            let result = panic::catch_unwind(|| {
+                let x = FieldElement::<223>::new(pair.0);
+                let y = FieldElement::<223>::new(pair.1);
+                Point::<FieldElement<223>>::new(curve, Coords::Def { x, y });
+            });
+            assert!(result.is_err());
+        }
     }
 }
