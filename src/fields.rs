@@ -2,9 +2,7 @@ use core::ops;
 use std::cmp::PartialEq;
 use std::fmt;
 
-pub trait Pow {
-    fn pow(self, exponent: i32) -> Self;
-}
+use crate::traits::Pow;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub struct FieldElement<const PRIME: u32> {

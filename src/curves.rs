@@ -1,9 +1,9 @@
 use core::ops;
 use std::fmt;
 
-use crate::fields;
+use crate::traits;
 
-impl fields::Pow for i64 {
+impl traits::Pow for i64 {
     fn pow(self, exponent: i32) -> i64 {
         self.pow(exponent as u32)
     }
@@ -58,7 +58,7 @@ where
         + ops::Mul<T, Output = T>
         + ops::Mul<i64, Output = T>
         + ops::Div<T, Output = T>
-        + fields::Pow
+        + traits::Pow
         + PartialEq
         + Default
         + std::fmt::Display
@@ -77,7 +77,7 @@ where
         + ops::Mul<T, Output = T>
         + ops::Mul<i64, Output = T>
         + ops::Div<T, Output = T>
-        + fields::Pow
+        + traits::Pow
         + PartialEq
         + Default
         + std::fmt::Display
@@ -108,7 +108,7 @@ where
         + ops::Mul<T, Output = T>
         + ops::Mul<i64, Output = T>
         + ops::Div<T, Output = T>
-        + fields::Pow
+        + traits::Pow
         + PartialEq
         + Default
         + std::fmt::Display
@@ -128,7 +128,7 @@ where
         + ops::Mul<T, Output = T>
         + ops::Mul<i64, Output = T>
         + ops::Div<T, Output = T>
-        + fields::Pow
+        + traits::Pow
         + PartialEq
         + Default
         + std::fmt::Display
