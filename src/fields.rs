@@ -59,23 +59,28 @@ impl<const PRIME: u32> ops::Add<i64> for FieldElement<PRIME> {
     }
 }
 
-impl<const PRIME: u32> ops::Sub<FieldElement<PRIME>> for FieldElement<PRIME> {
-    type Output = Self;
-
-    fn sub(self, other: Self) -> Self {
-        Self {
-            num: (self.num - other.num).rem_euclid(PRIME as i64),
-        }
-    }
-}
-
 impl<const PRIME: u32> ops::Sub<i64> for FieldElement<PRIME> {
     type Output = Self;
 
     fn sub(self, other: i64) -> Self {
-        Self {
-            num: (self.num - other).rem_euclid(PRIME as i64),
+        if self.num >= other {
+            Self {
+                num: (self.num - other) % PRIME as i64,
+            }
+        } else {
+            Self {
+                num: PRIME as i64 - ((other - self.num) % PRIME as i64),
+            }
         }
+    }
+}
+
+impl<const PRIME: u32> ops::Sub<FieldElement<PRIME>> for FieldElement<PRIME> {
+    type Output = Self;
+
+    #[inline]
+    fn sub(self, other: Self) -> Self {
+        self.sub(other.num)
     }
 }
 
