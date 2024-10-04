@@ -1,131 +1,231 @@
-use core::ops;
-use std::cmp::PartialEq;
-use std::fmt;
+use core::ops::{self, Add, Mul, Rem, Sub};
+use num_traits::cast::FromPrimitive;
+use std::cmp::{PartialEq, PartialOrd};
+use std::convert::From;
+use std::fmt::{self, Display};
 
 use crate::traits::Pow;
 
-#[derive(PartialEq, Debug, Clone, Copy)]
-pub struct FieldElement<const PRIME: u32> {
-    num: i64,
+#[derive(PartialEq, PartialOrd, Debug, Clone, Copy)]
+pub struct FieldElement<const PRIME: u32, T>
+where
+    T: PartialOrd
+        + Rem<Output = T>
+        + Add<Output = T>
+        + Sub<Output = T>
+        + Mul<Output = T>
+        + Pow
+        + FromPrimitive
+        + Default
+        + Clone
+        + Copy
+        + Display,
+{
+    num: T,
 }
 
-impl<const PRIME: u32> Default for FieldElement<PRIME> {
+impl<const PRIME: u32, T> Default for FieldElement<PRIME, T>
+where
+    T: PartialOrd
+        + Rem<Output = T>
+        + Add<Output = T>
+        + Sub<Output = T>
+        + Mul<Output = T>
+        + Pow
+        + FromPrimitive
+        + Default
+        + Clone
+        + Copy
+        + Display,
+{
     fn default() -> Self {
-        Self { num: 0 }
+        Self { num: T::default() }
     }
 }
 
-impl<const PRIME: u32> FieldElement<PRIME> {
-    pub fn new(num: i64) -> FieldElement<PRIME> {
-        if num >= PRIME as i64 {
+impl<const PRIME: u32, T> FieldElement<PRIME, T>
+where
+    T: PartialOrd
+        + Rem<Output = T>
+        + Add<Output = T>
+        + Sub<Output = T>
+        + Mul<Output = T>
+        + Pow
+        + FromPrimitive
+        + Default
+        + Clone
+        + Copy
+        + Display,
+{
+    pub fn new(num: T) -> FieldElement<PRIME, T> {
+        if num >= T::from_u32(PRIME).unwrap() {
             panic!("The value cannot be greater than the PRIME")
-        }
-        if num < 0 {
-            panic!("The value cannot be less than zero")
         }
         return FieldElement { num };
     }
 }
 
-impl<const PRIME: u32> fmt::Display for FieldElement<PRIME> {
+impl<const PRIME: u32, T> fmt::Display for FieldElement<PRIME, T>
+where
+    T: PartialOrd
+        + Rem<Output = T>
+        + Add<Output = T>
+        + Sub<Output = T>
+        + Mul<Output = T>
+        + Pow
+        + FromPrimitive
+        + Default
+        + Clone
+        + Copy
+        + Display,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "FieldElement_{}_{}", PRIME, self.num)
     }
 }
 
-impl<const PRIME: u32> PartialEq<i64> for FieldElement<PRIME> {
-    fn eq(&self, other: &i64) -> bool {
-        self.num == *other
+impl<const PRIME: u32, T> From<u32> for FieldElement<PRIME, T>
+where
+    T: PartialOrd
+        + Rem<Output = T>
+        + Add<Output = T>
+        + Sub<Output = T>
+        + Mul<Output = T>
+        + Pow
+        + FromPrimitive
+        + Default
+        + Clone
+        + Copy
+        + Display,
+{
+    fn from(value: u32) -> Self {
+        Self::new(T::from_u32(value).unwrap())
     }
 }
 
-impl<const PRIME: u32> ops::Add<FieldElement<PRIME>> for FieldElement<PRIME> {
+impl<const PRIME: u32, T> ops::Add<FieldElement<PRIME, T>> for FieldElement<PRIME, T>
+where
+    T: PartialOrd
+        + Rem<Output = T>
+        + Add<Output = T>
+        + Sub<Output = T>
+        + Mul<Output = T>
+        + Pow
+        + FromPrimitive
+        + Default
+        + Clone
+        + Copy
+        + Display,
+{
     type Output = Self;
 
+    #[inline]
     fn add(self, other: Self) -> Self {
+        let prime = T::from_u32(PRIME).unwrap();
         Self {
-            num: (self.num + other.num) % PRIME as i64,
+            num: (self.num + other.num) % prime,
         }
     }
 }
 
-impl<const PRIME: u32> ops::Add<i64> for FieldElement<PRIME> {
-    type Output = Self;
-
-    fn add(self, other: i64) -> Self {
-        Self {
-            num: (self.num + other) % PRIME as i64,
-        }
-    }
-}
-
-impl<const PRIME: u32> ops::Sub<i64> for FieldElement<PRIME> {
-    type Output = Self;
-
-    fn sub(self, other: i64) -> Self {
-        if self.num >= other {
-            Self {
-                num: (self.num - other) % PRIME as i64,
-            }
-        } else {
-            Self {
-                num: PRIME as i64 - ((other - self.num) % PRIME as i64),
-            }
-        }
-    }
-}
-
-impl<const PRIME: u32> ops::Sub<FieldElement<PRIME>> for FieldElement<PRIME> {
+impl<const PRIME: u32, T> ops::Sub<FieldElement<PRIME, T>> for FieldElement<PRIME, T>
+where
+    T: PartialOrd
+        + Rem<Output = T>
+        + Rem<Output = T>
+        + Add<Output = T>
+        + Sub<Output = T>
+        + Mul<Output = T>
+        + Pow
+        + FromPrimitive
+        + Default
+        + Clone
+        + Copy
+        + Display,
+{
     type Output = Self;
 
     #[inline]
     fn sub(self, other: Self) -> Self {
-        self.sub(other.num)
+        let prime = T::from_u32(PRIME).unwrap();
+        if self.num >= other.num {
+            Self {
+                num: (self.num - other.num) % prime,
+            }
+        } else {
+            Self {
+                num: (prime - ((other.num - self.num) % prime)),
+            }
+        }
     }
 }
 
-impl<const PRIME: u32> ops::Mul<FieldElement<PRIME>> for FieldElement<PRIME> {
+impl<const PRIME: u32, T> ops::Mul<FieldElement<PRIME, T>> for FieldElement<PRIME, T>
+where
+    T: PartialOrd
+        + Rem<Output = T>
+        + Add<Output = T>
+        + Sub<Output = T>
+        + Mul<Output = T>
+        + Pow
+        + FromPrimitive
+        + Default
+        + Clone
+        + Copy
+        + Display,
+{
     type Output = Self;
 
+    #[inline]
     fn mul(self, other: Self) -> Self {
+        let prime = T::from_u32(PRIME).unwrap();
         Self {
-            num: (self.num * other.num) % PRIME as i64,
+            num: (self.num * other.num) % prime,
         }
     }
 }
 
-impl<const PRIME: u32> ops::Mul<i64> for FieldElement<PRIME> {
-    type Output = Self;
-
-    fn mul(self, other: i64) -> Self {
-        Self {
-            num: (self.num * other as i64) % PRIME as i64,
-        }
-    }
-}
-
-impl<const PRIME: u32> Pow for FieldElement<PRIME> {
-    fn pow(self, exponent: i32) -> FieldElement<PRIME> {
+impl<const PRIME: u32, T> Pow for FieldElement<PRIME, T>
+where
+    T: PartialOrd
+        + Rem<Output = T>
+        + Add<Output = T>
+        + Sub<Output = T>
+        + Mul<Output = T>
+        + Pow
+        + FromPrimitive
+        + Default
+        + Clone
+        + Copy
+        + Display,
+{
+    fn pow(self, exponent: i32) -> FieldElement<PRIME, T> {
+        let prime = T::from_u32(PRIME).unwrap();
         let n = exponent.rem_euclid(PRIME as i32 - 1);
         return FieldElement {
-            num: self.num.pow(n as u32) % PRIME as i64,
+            num: self.num.pow(n as i32) % prime,
         };
     }
 }
 
-impl<const PRIME: u32> ops::Div<FieldElement<PRIME>> for FieldElement<PRIME> {
+impl<const PRIME: u32, T> ops::Div<FieldElement<PRIME, T>> for FieldElement<PRIME, T>
+where
+    T: PartialOrd
+        + Rem<Output = T>
+        + Add<Output = T>
+        + Sub<Output = T>
+        + Mul<Output = T>
+        + Pow
+        + FromPrimitive
+        + Default
+        + Clone
+        + Copy
+        + Display,
+{
     type Output = Self;
 
     fn div(self, other: Self) -> Self {
         self * other.pow(PRIME as i32 - 2)
-    }
-}
-
-impl<const PRIME: u32> ops::Div<u64> for FieldElement<PRIME> {
-    type Output = Self;
-
-    fn div(self, other: u64) -> Self {
-        self * Self::new(other as i64).pow(PRIME as i32 - 2)
     }
 }
 
@@ -135,56 +235,66 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn field_element_new_less_than_zero_error() {
-        FieldElement::<7>::new(-10);
-    }
-
-    #[test]
-    #[should_panic]
     fn field_element_new_greater_than_prime_error() {
-        FieldElement::<7>::new(15);
+        FieldElement::<7, i32>::new(15);
     }
 
     #[test]
     fn field_element_assert_eq() {
-        assert_eq!(FieldElement::<7>::new(5), FieldElement::<7>::new(5));
-        assert_eq!(FieldElement::<7>::new(5), 5);
+        assert_eq!(
+            FieldElement::<7, i32>::new(5),
+            FieldElement::<7, i32>::new(5)
+        );
+        assert_eq!(FieldElement::<7, i32>::new(5), 5.into());
     }
 
     #[test]
     fn field_element_add() {
-        assert_eq!(FieldElement::<19>::new(7) + FieldElement::<19>::new(8), 15);
-        assert_eq!(FieldElement::<19>::new(11) + 17, 9);
-        assert_eq!(FieldElement::<19>::new(9) + 10, 0);
+        assert_eq!(
+            FieldElement::<19, i32>::new(7) + FieldElement::<19, i32>::new(8),
+            15.into()
+        );
+        assert_eq!(FieldElement::<19, i32>::new(11) + 17.into(), 9.into());
+        assert_eq!(FieldElement::<19, i32>::new(9) + 10.into(), 0.into());
     }
 
     #[test]
     fn field_element_sub() {
-        assert_eq!(FieldElement::<19>::new(11) - FieldElement::<19>::new(9), 2);
-        assert_eq!(FieldElement::<19>::new(0) - 9, 10);
-        assert_eq!(FieldElement::<19>::new(6) - 13, 12);
+        assert_eq!(
+            FieldElement::<19, i32>::new(11) - FieldElement::<19, i32>::new(9),
+            2.into()
+        );
+        assert_eq!(FieldElement::<19, i32>::new(0) - 9.into(), 10.into());
+        assert_eq!(FieldElement::<19, i32>::new(6) - 13.into(), 12.into());
     }
 
     #[test]
     fn field_element_mul() {
-        assert_eq!(FieldElement::<19>::new(5) * FieldElement::<19>::new(3), 15);
-        assert_eq!(FieldElement::<19>::new(8) * 17, 3);
+        assert_eq!(
+            FieldElement::<19, i32>::new(5) * FieldElement::<19, i32>::new(3),
+            15.into()
+        );
+        assert_eq!(FieldElement::<19, i32>::new(8) * 17.into(), 3.into());
     }
 
     #[test]
     fn field_element_pow() {
-        assert_eq!(FieldElement::<19>::new(7).pow(3), 1);
-        assert_eq!(FieldElement::<19>::new(9).pow(12), 7);
-        assert_eq!(FieldElement::<19>::new(1).pow(18), 1);
-        assert_eq!(FieldElement::<19>::new(5).pow(18), 1);
-        assert_eq!(FieldElement::<19>::new(9).pow(18), 1);
+        assert_eq!(FieldElement::<19, i32>::new(7).pow(3), 1.into());
+        assert_eq!(FieldElement::<19, i64>::new(9).pow(12), 7.into());
+        assert_eq!(FieldElement::<19, i32>::new(1).pow(18), 1.into());
+        assert_eq!(FieldElement::<19, i32>::new(5).pow(18), 1.into());
+        assert_eq!(FieldElement::<19, i32>::new(9).pow(18), 1.into());
 
-        assert_eq!(FieldElement::<19>::new(7).pow(-1), 11);
+        assert_eq!(FieldElement::<19, i64>::new(7).pow(-1), 11.into());
+        assert_eq!(FieldElement::<19, u64>::new(7).pow(-1), 11.into());
     }
 
     #[test]
     fn field_element_div() {
-        assert_eq!(FieldElement::<19>::new(2) / FieldElement::<19>::new(7), 3);
-        assert_eq!(FieldElement::<19>::new(7) / 5, 9);
+        assert_eq!(
+            FieldElement::<19, i64>::new(2) / FieldElement::<19, i64>::new(7),
+            3.into()
+        );
+        assert_eq!(FieldElement::<19, i64>::new(7) / 5.into(), 9.into());
     }
 }
