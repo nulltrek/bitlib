@@ -4,7 +4,7 @@ use std::cmp::{PartialEq, PartialOrd};
 use std::convert::From;
 use std::fmt::{self, Display};
 
-use crate::traits::Pow;
+use crate::traits::{ModPow, Pow};
 
 #[derive(PartialEq, PartialOrd, Debug, Clone, Copy)]
 pub struct FieldElement<const PRIME: u32, T>
@@ -14,7 +14,7 @@ where
         + Add<Output = T>
         + Sub<Output = T>
         + Mul<Output = T>
-        + Pow
+        + ModPow
         + FromPrimitive
         + Default
         + Clone
@@ -31,7 +31,7 @@ where
         + Add<Output = T>
         + Sub<Output = T>
         + Mul<Output = T>
-        + Pow
+        + ModPow
         + FromPrimitive
         + Default
         + Clone
@@ -50,7 +50,7 @@ where
         + Add<Output = T>
         + Sub<Output = T>
         + Mul<Output = T>
-        + Pow
+        + ModPow
         + FromPrimitive
         + Default
         + Clone
@@ -72,7 +72,7 @@ where
         + Add<Output = T>
         + Sub<Output = T>
         + Mul<Output = T>
-        + Pow
+        + ModPow
         + FromPrimitive
         + Default
         + Clone
@@ -91,7 +91,7 @@ where
         + Add<Output = T>
         + Sub<Output = T>
         + Mul<Output = T>
-        + Pow
+        + ModPow
         + FromPrimitive
         + Default
         + Clone
@@ -110,7 +110,7 @@ where
         + Add<Output = T>
         + Sub<Output = T>
         + Mul<Output = T>
-        + Pow
+        + ModPow
         + FromPrimitive
         + Default
         + Clone
@@ -136,7 +136,7 @@ where
         + Add<Output = T>
         + Sub<Output = T>
         + Mul<Output = T>
-        + Pow
+        + ModPow
         + FromPrimitive
         + Default
         + Clone
@@ -167,7 +167,7 @@ where
         + Add<Output = T>
         + Sub<Output = T>
         + Mul<Output = T>
-        + Pow
+        + ModPow
         + FromPrimitive
         + Default
         + Clone
@@ -192,7 +192,7 @@ where
         + Add<Output = T>
         + Sub<Output = T>
         + Mul<Output = T>
-        + Pow
+        + ModPow
         + FromPrimitive
         + Default
         + Clone
@@ -200,11 +200,12 @@ where
         + Display,
 {
     fn pow(self, exponent: i32) -> FieldElement<PRIME, T> {
-        let prime = T::from_u32(PRIME).unwrap();
-        let n = exponent.rem_euclid(PRIME as i32 - 1);
-        return FieldElement {
-            num: self.num.pow(n as i32) % prime,
-        };
+        let exponent = exponent.rem_euclid(PRIME as i32 - 1);
+        Self {
+            num: self
+                .num
+                .mod_pow(T::from_i32(exponent).unwrap(), T::from_u32(PRIME).unwrap()),
+        }
     }
 }
 
@@ -215,7 +216,7 @@ where
         + Add<Output = T>
         + Sub<Output = T>
         + Mul<Output = T>
-        + Pow
+        + ModPow
         + FromPrimitive
         + Default
         + Clone
