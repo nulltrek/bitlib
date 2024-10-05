@@ -282,26 +282,41 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn point_sum_field_elements() {
-    //     type F223 = FieldElement<223, u128>;
+    #[test]
+    fn point_sum_field_elements() {
+        type F223 = FieldElement<223, u128>;
 
-    //     let curve = Curve {
-    //         a: F223::new(0),
-    //         b: F223::new(7),
-    //     };
-    //     let _ = Point::<F223>::new(
-    //         curve,
-    //         Coords::Def {
-    //             x: F223::new(170),
-    //             y: F223::new(142),
-    //         },
-    //     ) + Point::<F223>::new(
-    //         curve,
-    //         Coords::Def {
-    //             x: F223::new(60),
-    //             y: F223::new(139),
-    //         },
-    //     );
-    // }
+        let curve = Curve {
+            a: F223::new(0),
+            b: F223::new(7),
+        };
+        for tuple in [
+            ((170, 142), (60, 139), (220, 181)),
+            ((47, 71), (17, 56), (215, 68)),
+            ((143, 98), (76, 66), (47, 71)),
+        ] {
+            assert_eq!(
+                Point::<F223>::new(
+                    curve,
+                    Coords::Def {
+                        x: F223::new(tuple.0 .0),
+                        y: F223::new(tuple.0 .1),
+                    }
+                ) + Point::<F223>::new(
+                    curve,
+                    Coords::Def {
+                        x: F223::new(tuple.1 .0),
+                        y: F223::new(tuple.1 .1),
+                    }
+                ),
+                Point::<F223>::new(
+                    curve,
+                    Coords::Def {
+                        x: F223::new(tuple.2 .0),
+                        y: F223::new(tuple.2 .1),
+                    }
+                )
+            );
+        }
+    }
 }
