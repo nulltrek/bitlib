@@ -1,387 +1,274 @@
-use core::ops;
+use crate::fields::{
+    add as fadd, div as fdiv, eq as feq, mul as fmul, pow as fpow, sub as fsub, Field, FieldElement,
+};
 use std::fmt;
 
-use crate::traits;
-
-/// Defines a curve in the form:
-///    y^2 = x^3 + ax + b
-///
-#[derive(PartialEq, Debug, Clone, Copy)]
-pub struct Curve<T> {
-    a: T,
-    b: T,
-}
-
-impl<T> fmt::Display for Curve<T>
-where
-    T: std::fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}_{}", self.a, self.b)
-    }
-}
-
 #[derive(PartialEq, Debug, Copy, Clone)]
-pub enum Coords<T> {
+pub enum Point<T> {
     Inf,
-    Def { x: T, y: T },
+    Coords { x: T, y: T },
 }
 
-impl<T> fmt::Display for Coords<T>
-where
-    T: std::fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Coords::Inf => write!(f, "inf"),
-            Coords::Def { x, y } => write!(f, "{}, {}", x, y),
-        }
-    }
-}
-
-/// The point only supports curves in the form:
-///    y^2 = x^3 + Ax + B
-///
-#[derive(PartialEq, Debug, Copy, Clone)]
-pub struct Point<T>
-where
-    T: ops::Add<T, Output = T>
-        + ops::Sub<T, Output = T>
-        + ops::Mul<T, Output = T>
-        + ops::Div<T, Output = T>
-        + traits::Pow
-        + std::convert::From<u32>
-        + PartialEq
-        + Default
-        + std::fmt::Display
-        + Copy,
-{
-    curve: Curve<T>,
-    coords: Coords<T>,
-}
-
-impl<T> Point<T>
-where
-    T: ops::Add<T, Output = T>
-        + ops::Sub<T, Output = T>
-        + ops::Mul<T, Output = T>
-        + ops::Div<T, Output = T>
-        + std::convert::From<u32>
-        + traits::Pow
-        + PartialEq
-        + Default
-        + std::fmt::Display
-        + Copy,
-{
-    pub fn new(curve: Curve<T>, coords: Coords<T>) -> Point<T> {
-        match coords {
-            Coords::Inf => (),
-            Coords::Def { x, y } => {
-                if y * y != x.pow(3) + x * curve.a + curve.b {
-                    panic!(
-                        "The point ({}, {}) is not on the curve ({}, {})",
-                        x, y, curve.a, curve.b
-                    )
-                }
-            }
-        }
-        Point { curve, coords }
+impl<T> Point<T> {
+    pub fn coords(x: T, y: T) -> Self {
+        Point::Coords { x, y }
     }
 }
 
 impl<T> fmt::Display for Point<T>
 where
-    T: ops::Add<T, Output = T>
-        + ops::Sub<T, Output = T>
-        + ops::Mul<T, Output = T>
-        + ops::Div<T, Output = T>
-        + traits::Pow
-        + std::convert::From<u32>
-        + PartialEq
-        + Default
-        + std::fmt::Display
-        + Copy,
+    T: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Point({})_{}", self.curve, self.coords)
+        match self {
+            Point::Inf => write!(f, "inf"),
+            Point::Coords { x, y } => write!(f, "x: {}, y: {}", x, y),
+        }
     }
 }
 
-impl<T> ops::Add<Point<T>> for Point<T>
+/// Defines a curve in the form:
+///    y^2 = x^3 + ax + b
+///
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub struct Curve<T, FIELD>
 where
-    T: ops::Add<T, Output = T>
-        + ops::Sub<T, Output = T>
-        + ops::Mul<T, Output = T>
-        + ops::Div<T, Output = T>
-        + std::convert::From<u32>
-        + traits::Pow
-        + PartialEq
-        + Default
-        + std::fmt::Display
-        + Copy,
+    FIELD: Field<T>,
+    T: FieldElement,
 {
-    type Output = Self;
+    field: FIELD,
+    a: T,
+    b: T,
+}
 
-    fn add(self, other: Self) -> Self {
-        if self.curve != other.curve {
-            panic!(
-                "Curve parameters are different between {} and {}",
-                self, other
-            )
+impl<T, FIELD> Curve<T, FIELD>
+where
+    FIELD: Field<T>,
+    T: FieldElement,
+{
+    pub fn new(field: FIELD, a: T, b: T) -> Self {
+        return Curve { field, a, b };
+    }
+
+    pub fn has_point(&self, point: &Point<T>) -> bool {
+        let f = &self.field;
+        match point {
+            Point::Inf => true,
+            Point::Coords { x, y } => feq!(
+                f,
+                fmul!(f, y, y),
+                fadd!(
+                    f,
+                    fpow!(f, x, FIELD::from_u8(3)),
+                    fadd!(f, fmul!(f, x, self.a), self.b)
+                )
+            ),
+        }
+    }
+
+    pub fn add(&self, p1: &Point<T>, p2: &Point<T>) -> Point<T> {
+        let (p1_x, p1_y) = match p1 {
+            Point::Inf => return *p2,
+            Point::Coords { x, y } => (x, y),
+        };
+        let (p2_x, p2_y) = match p2 {
+            Point::Inf => return *p1,
+            Point::Coords { x, y } => (x, y),
+        };
+
+        if p1_x == p2_x && p1_y == p2_y && *p1_y == T::default() {
+            return Point::Inf;
         }
 
-        let (self_x, self_y) = match self.coords {
-            Coords::Inf => return other,
-            Coords::Def { x, y } => (x, y),
-        };
-        let (other_x, other_y) = match other.coords {
-            Coords::Inf => return self,
-            Coords::Def { x, y } => (x, y),
-        };
+        let f = &self.field;
 
-        if self_x == other_x && self_y == T::default() && other_y == T::default() {
-            return Self::new(self.curve, Coords::Inf);
-        }
         // Points are equal
-        if self_x == other_x && self_y == other_y {
-            let slope = (T::from(3) * self_x * self_x + self.curve.a) / (T::from(2) * self_y);
-            let x = (slope * slope) - (T::from(2) * self_x);
-            let y = slope * (self_x - x) - self_y;
-            return Self::new(self.curve, Coords::Def { x, y });
+        if p1_x == p2_x && p1_y == p2_y {
+            let slope = fdiv!(
+                f,
+                fadd!(
+                    f,
+                    fmul!(f, FIELD::from_u8(3), fpow!(f, p1_x, FIELD::from_u8(2))),
+                    self.a
+                ),
+                fmul!(f, FIELD::from_u8(2), p1_y)
+            );
+
+            let x = fsub!(f, fmul!(f, slope, slope), fmul!(f, FIELD::from_u8(2), p1_x));
+            let y = fsub!(f, fmul!(f, slope, fsub!(f, p1_x, x)), p1_y);
+            return Point::coords(x, y);
         }
+
         // Points are mirrored on X axis, forming a vertical line
-        if self_x == other_x && self_y != other_y {
-            return Self::new(self.curve, Coords::Inf);
+        if p1_x == p2_x && p1_y != p2_y {
+            return Point::Inf;
         }
 
         // Points are different
-        let slope = (other_y - self_y) / (other_x - self_x);
-        let x = slope * slope - self_x - other_x;
-        let y = slope * (self_x - x) - self_y;
-        return Self::new(self.curve, Coords::Def { x, y });
+        let slope = fdiv!(f, fsub!(f, p2_y, p1_y), fsub!(f, p2_x, p1_x));
+        let x = fsub!(f, fsub!(f, fmul!(f, slope, slope), p1_x), p2_x);
+        let y = fsub!(f, fmul!(f, slope, fsub!(f, p1_x, x)), p1_y);
+        return Point::coords(x, y);
     }
-}
 
-impl<T> ops::Mul<u64> for Point<T>
-where
-    T: ops::Add<T, Output = T>
-        + ops::Sub<T, Output = T>
-        + ops::Mul<T, Output = T>
-        + ops::Div<T, Output = T>
-        + std::convert::From<u32>
-        + traits::Pow
-        + PartialEq
-        + Default
-        + std::fmt::Display
-        + Copy,
-{
-    type Output = Self;
+    pub fn mul(&self, scalar: &T, p: &Point<T>) -> Point<T> {
+        let zero = FIELD::from_u8(0);
+        let one = FIELD::from_u8(1);
+        let two = FIELD::from_u8(2);
 
-    fn mul(self, other: u64) -> Self {
-        let mut coeff = other;
-        let mut result = Self::new(self.curve, Coords::Inf);
-        let mut current = self;
-        while coeff > 0 {
-            if coeff % 2 == 1 {
-                result = result + current;
+        let mut coeff = *scalar;
+        let mut result = Point::Inf;
+        let mut current = *p;
+        while coeff > zero {
+            if coeff % two == one {
+                result = self.add(&result, &current);
             }
-            current = current + current;
-            coeff = coeff >> 1;
+            current = self.add(&current, &current);
+            coeff = coeff >> one;
         }
         return result;
     }
 }
 
-impl<T> ops::Mul<Point<T>> for u64
+impl<T, FIELD> fmt::Display for Curve<T, FIELD>
 where
-    T: ops::Add<T, Output = T>
-        + ops::Sub<T, Output = T>
-        + ops::Mul<T, Output = T>
-        + ops::Div<T, Output = T>
-        + std::convert::From<u32>
-        + traits::Pow
-        + PartialEq
-        + Default
-        + std::fmt::Display
-        + Copy,
+    FIELD: Field<T>,
+    T: FieldElement,
 {
-    type Output = Point<T>;
-
-    fn mul(self, other: Point<T>) -> Point<T> {
-        return other * self;
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "a: {}, b: {} on field: {}", self.a, self.b, self.field)
     }
 }
 
+macro_rules! has_point {
+    ($curve:expr, $a:expr) => {
+        $curve.has_point(&$a)
+    };
+}
+macro_rules! add {
+    ($curve:expr, $a:expr, $b:expr) => {
+        $curve.add(&$a, &$b)
+    };
+}
+macro_rules! mul {
+    ($curve:expr, $a:expr, $b:expr) => {
+        $curve.mul(&$a, &$b)
+    };
+}
+pub(crate) use add;
+pub(crate) use has_point;
+pub(crate) use mul;
+
 #[cfg(test)]
 mod tests {
-    use crate::fields::FieldElement;
-
     use super::*;
-    use std::panic;
+    use crate::fields::{FiniteField, InfiniteField};
 
     #[test]
-    #[should_panic]
-    fn point_not_on_curve() {
-        Point::<u64>::new(Curve::<u64> { a: 5, b: 7 }, Coords::Def { x: 5, y: 7 });
+    fn inf_field_point_not_on_curve() {
+        let c = Curve::<u64, InfiniteField>::new(InfiniteField, 5, 7);
+        assert!(!has_point!(c, Point::coords(5, 7)))
     }
 
     #[test]
-    fn point_constructor() {
-        Point::<i64>::new(Curve::<i64> { a: 5, b: 7 }, Coords::Def { x: -1, y: -1 });
-        Point::<u64>::new(Curve::<u64> { a: 5, b: 7 }, Coords::Def { x: 18, y: 77 });
+    fn inf_field_point_on_curve() {
+        let c = Curve::<i64, InfiniteField>::new(InfiniteField, 5, 7);
+        assert!(has_point!(c, Point::Inf));
+        assert!(has_point!(c, Point::coords(-1, -1)));
+
+        let c = Curve::<u64, InfiniteField>::new(InfiniteField, 5, 7);
+        assert!(has_point!(c, Point::Inf));
+        assert!(has_point!(c, Point::coords(18, 77)));
     }
 
     #[test]
-    fn point_equality() {
-        let curve = Curve::<u64> { a: 0, b: 7 };
+    fn inf_field_point_sum() {
+        let c = Curve::<i64, InfiniteField>::new(InfiniteField, 5, 7);
+        assert_eq!(add!(c, Point::Inf, Point::Inf), Point::Inf);
         assert_eq!(
-            Point::<u64>::new(curve, Coords::Inf),
-            Point::<u64>::new(curve, Coords::Inf)
+            add!(c, Point::Inf, Point::coords(-1, -1)),
+            Point::coords(-1, -1)
+        );
+        assert_eq!(
+            add!(c, Point::coords(-1, -1), Point::coords(2, 5)),
+            Point::coords(3, -7)
         );
 
-        let curve = Curve::<i64> { a: 5, b: 7 };
-        assert_ne!(
-            Point::<i64>::new(curve, Coords::Inf),
-            Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 })
-        );
-        assert_eq!(
-            Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 }),
-            Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 })
-        );
-        assert_ne!(
-            Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 }),
-            Point::<i64>::new(curve, Coords::Def { x: 18, y: 77 })
-        );
-    }
-
-    #[test]
-    fn point_sum() {
-        let curve = Curve::<i64> { a: 5, b: 7 };
-        assert_eq!(
-            Point::<i64>::new(curve, Coords::Inf) + Point::<i64>::new(curve, Coords::Inf),
-            Point::<i64>::new(curve, Coords::Inf)
-        );
-        assert_eq!(
-            Point::<i64>::new(curve, Coords::Inf)
-                + Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 }),
-            Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 })
-        );
-        assert_eq!(
-            Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 })
-                + Point::<i64>::new(curve, Coords::Def { x: 2, y: 5 }),
-            Point::<i64>::new(curve, Coords::Def { x: 3, y: -7 })
-        );
-
-        let curve = Curve::<i64> { a: 1, b: 2 };
+        let c = Curve::<i64, InfiniteField>::new(InfiniteField, 1, 2);
         // Points are equal, tangent to the curve at y = 0
         assert_eq!(
-            Point::<i64>::new(curve, Coords::Def { x: -1, y: 0 })
-                + Point::<i64>::new(curve, Coords::Def { x: -1, y: 0 }),
-            Point::<i64>::new(curve, Coords::Inf)
+            add!(c, Point::coords(-1, 0), Point::coords(-1, 0)),
+            Point::Inf
         );
 
-        let curve = Curve::<i64> { a: 5, b: 7 };
+        let c = Curve::<i64, InfiniteField>::new(InfiniteField, 5, 7);
         // Points are equal
         assert_eq!(
-            Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 })
-                + Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 }),
-            Point::<i64>::new(curve, Coords::Def { x: 18, y: 77 })
+            add!(c, Point::coords(-1, -1), Point::coords(-1, -1)),
+            Point::coords(18, 77)
         );
 
-        let curve = Curve::<i64> { a: 1, b: 4 };
+        let c = Curve::<i64, InfiniteField>::new(InfiniteField, 1, 4);
         // Points are mirrored on X axis, forming a vertical line
         assert_eq!(
-            Point::<i64>::new(curve, Coords::Def { x: 0, y: 2 })
-                + Point::<i64>::new(curve, Coords::Def { x: 0, y: -2 }),
-            Point::<i64>::new(curve, Coords::Inf)
+            add!(c, Point::coords(0, 2), Point::coords(0, -2)),
+            Point::Inf
         );
 
-        let curve = Curve::<i64> { a: 5, b: 7 };
+        let c = Curve::<i64, InfiniteField>::new(InfiniteField, 5, 7);
         // Points are different
         assert_eq!(
-            Point::<i64>::new(curve, Coords::Def { x: 2, y: 5 })
-                + Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 }),
-            Point::<i64>::new(curve, Coords::Def { x: 3, y: -7 })
+            add!(c, Point::coords(2, 5), Point::coords(-1, -1)),
+            Point::coords(3, -7)
         );
     }
 
     #[test]
-    fn point_valid_field_elements() {
-        let curve = Curve::<FieldElement<223, u64>> {
-            a: FieldElement::<223, u64>::new(0),
-            b: FieldElement::<223, u64>::new(7),
-        };
+    fn finite_field_point_on_curve() {
+        let f = FiniteField::new(223);
+        let c = Curve::<u64, FiniteField<u64>>::new(f, 0, 7);
 
         for pair in [(192, 105), (17, 56), (1, 193)].iter() {
-            let x = FieldElement::<223, u64>::new(pair.0);
-            let y = FieldElement::<223, u64>::new(pair.1);
-            Point::<FieldElement<223, u64>>::new(curve, Coords::Def { x, y });
+            assert!(has_point!(c, Point::coords(pair.0, pair.1)));
         }
     }
 
     #[test]
-    fn point_invalid_field_elements() {
-        let curve = Curve::<FieldElement<223, u64>> {
-            a: FieldElement::<223, u64>::new(0),
-            b: FieldElement::<223, u64>::new(7),
-        };
+    fn finite_field_point_not_on_curve() {
+        let f = FiniteField::new(223);
+        let c = Curve::<u64, FiniteField<u64>>::new(f, 0, 7);
 
         for pair in [(200, 119), (42, 99)].iter() {
-            let result = panic::catch_unwind(|| {
-                let x = FieldElement::<223, u64>::new(pair.0);
-                let y = FieldElement::<223, u64>::new(pair.1);
-                Point::<FieldElement<223, u64>>::new(curve, Coords::Def { x, y });
-            });
-            assert!(result.is_err());
+            assert!(!has_point!(c, Point::coords(pair.0, pair.1)));
         }
     }
 
     #[test]
-    fn point_sum_field_elements() {
-        type F223 = FieldElement<223, u128>;
+    fn finite_field_point_sum() {
+        let f = FiniteField::new(223);
+        let c = Curve::<u128, FiniteField<u128>>::new(f, 0, 7);
 
-        let curve = Curve {
-            a: F223::new(0),
-            b: F223::new(7),
-        };
         for tuple in [
             ((170, 142), (60, 139), (220, 181)),
             ((47, 71), (17, 56), (215, 68)),
             ((143, 98), (76, 66), (47, 71)),
         ] {
             assert_eq!(
-                Point::<F223>::new(
-                    curve,
-                    Coords::Def {
-                        x: F223::new(tuple.0 .0),
-                        y: F223::new(tuple.0 .1),
-                    }
-                ) + Point::<F223>::new(
-                    curve,
-                    Coords::Def {
-                        x: F223::new(tuple.1 .0),
-                        y: F223::new(tuple.1 .1),
-                    }
+                add!(
+                    c,
+                    Point::coords(tuple.0 .0, tuple.0 .1),
+                    Point::coords(tuple.1 .0, tuple.1 .1)
                 ),
-                Point::<F223>::new(
-                    curve,
-                    Coords::Def {
-                        x: F223::new(tuple.2 .0),
-                        y: F223::new(tuple.2 .1),
-                    }
-                )
+                Point::coords(tuple.2 .0, tuple.2 .1)
             );
         }
     }
 
     #[test]
     fn scalar_mul_field_elements() {
-        type F223 = FieldElement<223, u128>;
+        let f = FiniteField::new(223);
+        let c = Curve::<u128, FiniteField<u128>>::new(f, 0, 7);
 
-        let curve = Curve {
-            a: F223::new(0),
-            b: F223::new(7),
-        };
         for tuple in [
             (2, (192, 105), (49, 71)),
             (2, (143, 98), (64, 168)),
@@ -390,33 +277,9 @@ mod tests {
             (8, (47, 71), (116, 55)),
         ] {
             assert_eq!(
-                tuple.0
-                    * Point::<F223>::new(
-                        curve,
-                        Coords::Def {
-                            x: F223::new(tuple.1 .0),
-                            y: F223::new(tuple.1 .1),
-                        }
-                    ),
-                Point::<F223>::new(
-                    curve,
-                    Coords::Def {
-                        x: F223::new(tuple.2 .0),
-                        y: F223::new(tuple.2 .1),
-                    }
-                )
+                mul!(c, tuple.0, Point::coords(tuple.1 .0, tuple.1 .1)),
+                Point::coords(tuple.2 .0, tuple.2 .1)
             );
         }
-
-        assert_eq!(
-            21 * Point::<F223>::new(
-                curve,
-                Coords::Def {
-                    x: F223::new(47),
-                    y: F223::new(71),
-                }
-            ),
-            Point::<F223>::new(curve, Coords::Inf,)
-        );
     }
 }
