@@ -21,7 +21,7 @@ where
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub enum Coords<T> {
     Inf,
     Def { x: T, y: T },
@@ -42,7 +42,7 @@ where
 /// The point only supports curves in the form:
 ///    y^2 = x^3 + Ax + B
 ///
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub struct Point<T>
 where
     T: ops::Add<T, Output = T>
@@ -162,6 +162,56 @@ where
     }
 }
 
+impl<T> ops::Mul<u64> for Point<T>
+where
+    T: ops::Add<T, Output = T>
+        + ops::Sub<T, Output = T>
+        + ops::Mul<T, Output = T>
+        + ops::Div<T, Output = T>
+        + std::convert::From<u32>
+        + traits::Pow
+        + PartialEq
+        + Default
+        + std::fmt::Display
+        + Copy,
+{
+    type Output = Self;
+
+    fn mul(self, other: u64) -> Self {
+        let mut coeff = other;
+        let mut result = Self::new(self.curve, Coords::Inf);
+        let mut current = self;
+        while coeff > 0 {
+            if coeff % 2 == 1 {
+                result = result + current;
+            }
+            current = current + current;
+            coeff = coeff >> 1;
+        }
+        return result;
+    }
+}
+
+impl<T> ops::Mul<Point<T>> for u64
+where
+    T: ops::Add<T, Output = T>
+        + ops::Sub<T, Output = T>
+        + ops::Mul<T, Output = T>
+        + ops::Div<T, Output = T>
+        + std::convert::From<u32>
+        + traits::Pow
+        + PartialEq
+        + Default
+        + std::fmt::Display
+        + Copy,
+{
+    type Output = Point<T>;
+
+    fn mul(self, other: Point<T>) -> Point<T> {
+        return other * self;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::fields::FieldElement;
@@ -207,6 +257,10 @@ mod tests {
     #[test]
     fn point_sum() {
         let curve = Curve::<i64> { a: 5, b: 7 };
+        assert_eq!(
+            Point::<i64>::new(curve, Coords::Inf) + Point::<i64>::new(curve, Coords::Inf),
+            Point::<i64>::new(curve, Coords::Inf)
+        );
         assert_eq!(
             Point::<i64>::new(curve, Coords::Inf)
                 + Point::<i64>::new(curve, Coords::Def { x: -1, y: -1 }),
@@ -318,5 +372,51 @@ mod tests {
                 )
             );
         }
+    }
+
+    #[test]
+    fn scalar_mul_field_elements() {
+        type F223 = FieldElement<223, u128>;
+
+        let curve = Curve {
+            a: F223::new(0),
+            b: F223::new(7),
+        };
+        for tuple in [
+            (2, (192, 105), (49, 71)),
+            (2, (143, 98), (64, 168)),
+            (2, (47, 71), (36, 111)),
+            (4, (47, 71), (194, 51)),
+            (8, (47, 71), (116, 55)),
+        ] {
+            assert_eq!(
+                tuple.0
+                    * Point::<F223>::new(
+                        curve,
+                        Coords::Def {
+                            x: F223::new(tuple.1 .0),
+                            y: F223::new(tuple.1 .1),
+                        }
+                    ),
+                Point::<F223>::new(
+                    curve,
+                    Coords::Def {
+                        x: F223::new(tuple.2 .0),
+                        y: F223::new(tuple.2 .1),
+                    }
+                )
+            );
+        }
+
+        assert_eq!(
+            21 * Point::<F223>::new(
+                curve,
+                Coords::Def {
+                    x: F223::new(47),
+                    y: F223::new(71),
+                }
+            ),
+            Point::<F223>::new(curve, Coords::Inf,)
+        );
     }
 }
