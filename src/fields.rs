@@ -1,3 +1,4 @@
+use crate::u256::U256;
 use core::ops::{Add, Div, Mul, Rem, Shr, Sub};
 use num_traits::cast::{FromPrimitive, ToPrimitive};
 use num_traits::pow::Pow;
@@ -24,7 +25,6 @@ pub trait FieldElement:
     + Mul<Output = Self>
     + Rem<Output = Self>
     + Shr<Output = Self>
-    + Pow<u32, Output = Self>
     + FromPrimitive
     + Copy
     + Clone
@@ -38,12 +38,13 @@ impl FieldElement for u64 {}
 impl FieldElement for i64 {}
 impl FieldElement for u128 {}
 impl FieldElement for i128 {}
+impl FieldElement for U256 {}
 
 pub struct InfiniteField;
 
 impl<T> Field<T> for InfiniteField
 where
-    T: FieldElement + Div<Output = T> + ToPrimitive,
+    T: FieldElement + Div<Output = T> + Pow<u32, Output = T> + ToPrimitive,
 {
     fn add(&self, a: &T, b: &T) -> T {
         a.add(*b)
@@ -82,6 +83,7 @@ impl FiniteFieldElement for u64 {}
 impl FiniteFieldElement for i64 {}
 impl FiniteFieldElement for u128 {}
 impl FiniteFieldElement for i128 {}
+impl FiniteFieldElement for U256 {}
 
 pub struct FiniteField<T>
 where
@@ -155,6 +157,83 @@ impl<T> fmt::Display for FiniteField<T>
 where
     T: FiniteFieldElement,
 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "prime: {}", self.prime)
+    }
+}
+
+pub struct FiniteFieldU256 {
+    prime: U256,
+}
+
+impl FiniteFieldU256 {
+    pub fn new(prime: U256) -> Self {
+        Self { prime }
+    }
+}
+
+impl Field<U256> for FiniteFieldU256 {
+    fn add(&self, a: &U256, b: &U256) -> U256 {
+        let a = a.to_big_uint();
+        let b = b.to_big_uint();
+        let prime = self.prime.to_big_uint();
+        U256::from_big_uint(&(a.add(b) % prime))
+    }
+
+    fn sub(&self, a: &U256, b: &U256) -> U256 {
+        if *a >= *b {
+            (*a).sub(*b) % self.prime
+        } else {
+            self.prime - (b.sub(*a) % self.prime)
+        }
+    }
+
+    fn mul(&self, a: &U256, b: &U256) -> U256 {
+        let a = a.to_big_uint();
+        let b = b.to_big_uint();
+        let prime = self.prime.to_big_uint();
+        let result = (a * b) % prime;
+        U256::from_big_uint(&result)
+    }
+
+    fn div(&self, a: &U256, b: &U256) -> U256 {
+        self.mul(a, &self.pow(b, &(self.prime - Self::from_u8(2))))
+    }
+
+    /// Modular exponentiation
+    /// See: https://en.wikipedia.org/wiki/Modular_exponentiation#Right-to-left_binary_method
+    fn pow(&self, a: &U256, exponent: &U256) -> U256 {
+        let zero = U256::default();
+        let one = Self::from_u8(1);
+        let two = Self::from_u8(2);
+
+        if self.prime == one {
+            return zero;
+        }
+
+        let prime = self.prime.to_big_uint();
+        let mut exp = *exponent;
+        let mut base = (*a % self.prime).to_big_uint();
+        let mut result = one.to_big_uint();
+        while exp > zero {
+            if exp % two == one {
+                result = (result * &base) % &prime;
+            }
+            exp = exp >> one;
+            base = (&base * &base) % &prime;
+        }
+        return U256::from_big_uint(&result);
+    }
+
+    fn eq(&self, a: &U256, b: &U256) -> bool {
+        (*a % self.prime) == (*b % self.prime)
+    }
+    fn from_u8(value: u8) -> U256 {
+        U256::from_u8(value).unwrap()
+    }
+}
+
+impl fmt::Display for FiniteFieldU256 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "prime: {}", self.prime)
     }
@@ -244,5 +323,23 @@ mod tests {
         let f = FiniteField::<i32>::new(19);
         assert_eq!(pow!(f, 7_i32, 3), 1);
         assert_eq!(pow!(f, 9_i32, 12), 7);
+    }
+
+    #[test]
+    fn finite_field_secp256k1_point() {
+        let prime =
+            U256::from_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f");
+        let f = FiniteFieldU256::new(prime);
+
+        let x = U256::from_hex("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798");
+        let y = U256::from_hex("483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8");
+        assert_eq!(
+            pow!(f, y, U256::from_u32(2).unwrap()),
+            add!(
+                f,
+                pow!(f, x, U256::from_u32(3).unwrap()),
+                U256::from_u32(7).unwrap()
+            )
+        );
     }
 }

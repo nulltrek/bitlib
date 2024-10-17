@@ -162,7 +162,9 @@ pub(crate) use mul;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fields::{FiniteField, InfiniteField};
+    use crate::fields::{FiniteField, FiniteFieldU256, InfiniteField};
+    use crate::u256::U256;
+    use num_traits::FromPrimitive;
 
     #[test]
     fn inf_field_point_not_on_curve() {
@@ -281,5 +283,23 @@ mod tests {
                 Point::coords(tuple.2 .0, tuple.2 .1)
             );
         }
+    }
+    #[test]
+    fn sekp_generator_point() {
+        let f = FiniteFieldU256::new(U256::from_hex(
+            "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f",
+        ));
+        let c = Curve::<U256, FiniteFieldU256>::new(
+            f,
+            U256::from_u32(0).unwrap(),
+            U256::from_u32(7).unwrap(),
+        );
+
+        let g = Point::coords(
+            U256::from_hex("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"),
+            U256::from_hex("483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"),
+        );
+        let n = U256::from_hex("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141");
+        assert_eq!(mul!(c, n, g), Point::Inf);
     }
 }
