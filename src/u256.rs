@@ -8,8 +8,23 @@ use std::ops::{Add, Mul, Rem, Shr, Sub};
 pub struct U256(primitive_types::U256);
 
 impl U256 {
+    pub fn from_big_endian(slice: &[u8]) -> U256 {
+        U256(primitive_types::U256::from_big_endian(slice))
+    }
     pub fn from_hex(hex: &str) -> U256 {
         U256(primitive_types::U256::from_str_radix(hex, 16).unwrap())
+    }
+
+    pub fn from_dec(dec: &str) -> U256 {
+        U256(primitive_types::U256::from_dec_str(dec).unwrap())
+    }
+
+    pub fn to_big_endian(&self) -> [u8; 32] {
+        self.0.to_big_endian()
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.0.is_zero()
     }
 }
 

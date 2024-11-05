@@ -119,7 +119,7 @@ where
         a.mul(*b) % self.prime
     }
     fn div(&self, a: &T, b: &T) -> T {
-        a.mul(self.pow(b, &(self.prime - Self::from_u8(2))))
+        self.mul(a, &self.pow(b, &(self.prime - Self::from_u8(2))))
     }
 
     /// Modular exponentiation
@@ -309,6 +309,11 @@ mod tests {
         assert_eq!(sub!(f, 1, 1), 0_u32);
         assert_eq!(mul!(f, 2, 4), 1_u32);
         assert_eq!(pow!(f, 2, 4), 2_u32);
+
+        let f = FiniteField::<u32>::new(31);
+        assert_eq!(div!(f, 3, 24), 4_u32);
+        assert_eq!(div!(f, 1, 4913), 29_u32);
+        assert_eq!(mul!(f, 11, div!(f, 1, 256)), 13_u32);
     }
 
     #[test]
@@ -323,6 +328,47 @@ mod tests {
         let f = FiniteField::<i32>::new(19);
         assert_eq!(pow!(f, 7_i32, 3), 1);
         assert_eq!(pow!(f, 9_i32, 12), 7);
+    }
+
+    #[test]
+    fn finite_field_u256_div() {
+        let f = FiniteFieldU256::new(U256::from_hex("1f"));
+
+        assert_eq!(
+            mul!(
+                f,
+                U256::from_hex("b"),
+                div!(f, U256::from_hex("1"), U256::from_hex("100"))
+            ),
+            U256::from_hex("d")
+        );
+
+        let f = FiniteFieldU256::new(U256::from_hex(
+            "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141",
+        ));
+        assert_eq!(
+            div!(
+                f,
+                U256::from_hex("ec208baa0fc1c19f708a9ca96fdeff3ac3f230bb4a7ba4aede4942ad003c0f60",),
+                U256::from_hex("68342ceff8935ededd102dd876ffd6ba72d6a427a3edb13d26eb0781cb423c4")
+            ),
+            U256::from_dec(
+                "94501631981587311006704454863488507556501540117424777655513324157345498405185"
+            )
+        );
+
+        assert_eq!(
+            pow!(
+                f,
+                U256::from_hex("68342ceff8935ededd102dd876ffd6ba72d6a427a3edb13d26eb0781cb423c4"),
+                U256::from_hex("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141")
+                // U256::from_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f")
+                    - U256::from_dec("2")
+            ),
+            U256::from_dec(
+                "100323378640741192763451357826607979131075829390957642811683296770329292192481"
+            )
+        )
     }
 
     #[test]
