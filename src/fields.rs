@@ -89,7 +89,7 @@ pub struct FiniteField<T>
 where
     T: FiniteFieldElement,
 {
-    prime: T,
+    pub prime: T,
 }
 
 impl<T> FiniteField<T>
@@ -163,7 +163,7 @@ where
 }
 
 pub struct FiniteFieldU256 {
-    prime: U256,
+    pub prime: U256,
 }
 
 impl FiniteFieldU256 {
@@ -245,32 +245,32 @@ impl fmt::Display for FiniteFieldU256 {
 //     };
 // }
 macro_rules! eq {
-    ($field:ident, $a:expr, $b:expr) => {
+    ($field:expr, $a:expr, $b:expr) => {
         $field.eq(&$a, &$b)
     };
 }
 macro_rules! add {
-    ($field:ident, $a:expr, $b:expr) => {
+    ($field:expr, $a:expr, $b:expr) => {
         $field.add(&$a, &$b)
     };
 }
 macro_rules! sub {
-    ($field:ident, $a:expr, $b:expr) => {
+    ($field:expr, $a:expr, $b:expr) => {
         $field.sub(&$a, &$b)
     };
 }
 macro_rules! mul {
-    ($field:ident, $a:expr, $b:expr) => {
+    ($field:expr, $a:expr, $b:expr) => {
         $field.mul(&$a, &$b)
     };
 }
 macro_rules! div {
-    ($field:ident, $a:expr, $b:expr) => {
+    ($field:expr, $a:expr, $b:expr) => {
         $field.div(&$a, &$b)
     };
 }
 macro_rules! pow {
-    ($field:ident, $a:expr, $b:expr) => {
+    ($field:expr, $a:expr, $b:expr) => {
         $field.pow(&$a, &$b)
     };
 }

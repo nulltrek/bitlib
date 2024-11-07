@@ -1,6 +1,9 @@
 use crate::fields::{
-    add as fadd, div as fdiv, eq as feq, mul as fmul, pow as fpow, sub as fsub, Field, FieldElement,
+    add as fadd, div as fdiv, eq as feq, mul as fmul, pow as fpow, sub as fsub, Field,
+    FieldElement, FiniteFieldU256,
 };
+use crate::u256::U256;
+
 use std::fmt;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
@@ -36,9 +39,9 @@ where
     FIELD: Field<T>,
     T: FieldElement,
 {
-    field: FIELD,
-    a: T,
-    b: T,
+    pub field: FIELD,
+    pub a: T,
+    pub b: T,
 }
 
 impl<T, FIELD> Curve<T, FIELD>
@@ -137,6 +140,34 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "a: {}, b: {} on field: {}", self.a, self.b, self.field)
+    }
+}
+
+impl Curve<U256, FiniteFieldU256> {
+    pub fn compute_y(&self, x: &U256, y_is_even: bool) -> U256 {
+        let f = &self.field;
+        let alpha = fadd!(
+            f,
+            fpow!(f, x, FiniteFieldU256::from_u8(3)),
+            fadd!(f, fmul!(f, x, self.a), self.b)
+        );
+
+        let beta = fpow!(
+            f,
+            alpha,
+            (f.prime + FiniteFieldU256::from_u8(1)) / FiniteFieldU256::from_u8(4)
+        );
+
+        let (even_beta, odd_beta) = if beta.is_even() {
+            (beta, fsub!(f, f.prime, beta))
+        } else {
+            (fsub!(f, f.prime, beta), beta)
+        };
+        if y_is_even {
+            even_beta
+        } else {
+            odd_beta
+        }
     }
 }
 
@@ -345,5 +376,31 @@ mod tests {
                 Point::coords(U256::from_hex(tuple.1), U256::from_hex(tuple.2))
             );
         }
+    }
+
+    #[test]
+    fn secp256k1_compute_y() {
+        let f = FiniteFieldU256::new(U256::from_hex(
+            "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f",
+        ));
+        let c = Curve::<U256, FiniteFieldU256>::new(
+            f,
+            U256::from_u32(0).unwrap(),
+            U256::from_u32(7).unwrap(),
+        );
+
+        let x = U256::from_hex("5cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc");
+        let y = U256::from_hex("6aebca40ba255960a3178d6d861a54dba813d0b813fde7b5a5082628087264da");
+        assert!(has_point!(c, Point::coords(x, y)));
+        assert_eq!(c.compute_y(&x, y.is_even()), y);
+
+        let x = U256::from_dec(
+            "1129440636796677161862702732893500786598174711050860804841887548862935321757",
+        );
+        let y = U256::from_dec(
+            "115578994362945582047350925625931558169997503587484631636937495530840505924358",
+        );
+        assert!(has_point!(c, Point::coords(x, y)));
+        assert_eq!(c.compute_y(&x, y.is_even()), y);
     }
 }

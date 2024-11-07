@@ -4,13 +4,14 @@ use crate::u256::U256;
 use hmac::{Hmac, Mac};
 use num_traits::cast::FromPrimitive;
 use sha2::{Digest, Sha256};
+use std::ops::Deref;
 
-struct Signature {
+pub struct Signature {
     r: U256,
     s: U256,
 }
 
-struct Hash(U256);
+pub struct Hash(U256);
 
 impl Hash {
     fn hash256(data: impl AsRef<[u8]>) -> Hash {
@@ -31,12 +32,27 @@ impl From<U256> for Hash {
     }
 }
 
-struct PrivateKey(U256);
+pub struct PrivateKey(U256);
 
-struct PublicKey(Point<U256>);
+impl PrivateKey {
+    pub fn new(value: U256) -> PrivateKey {
+        PrivateKey(value)
+    }
+}
 
-struct Secp256k1 {
-    curve: Curve<U256, FiniteFieldU256>,
+#[derive(Debug)]
+pub struct PublicKey(Point<U256>);
+
+impl Deref for PublicKey {
+    type Target = Point<U256>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+pub struct Secp256k1 {
+    pub curve: Curve<U256, FiniteFieldU256>,
     g: Point<U256>,
     n: U256,
 }
@@ -156,6 +172,18 @@ mod tests {
         let secp = Secp256k1::new();
         let n = U256::from_hex("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141");
         assert_eq!(mul!(secp.curve, n, secp.g), Point::Inf);
+    }
+
+    #[test]
+    fn pubkey_computation() {
+        let secp = Secp256k1::new();
+        assert_eq!(
+            *secp.get_pubkey(&PrivateKey::new(U256::from_dec("33466154331649568"))),
+            Point::coords(
+                U256::from_hex("027f3da1918455e03c46f659266a1bb5204e959db7364d2f473bdf8f0a13cc9d"),
+                U256::from_hex("ff87647fd023c13b4a4994f17691895806e1b40b57f4fd22581a4f46851f3b06"),
+            )
+        )
     }
 
     #[test]

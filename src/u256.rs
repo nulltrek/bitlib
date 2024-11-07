@@ -2,7 +2,7 @@ use num_bigint::BigUint;
 use num_traits::cast::FromPrimitive;
 use primitive_types;
 use std::fmt;
-use std::ops::{Add, Mul, Rem, Shr, Sub};
+use std::ops::{Add, Div, Mul, Rem, Shr, Sub};
 
 #[derive(PartialEq, PartialOrd, Debug, Copy, Clone)]
 pub struct U256(primitive_types::U256);
@@ -25,6 +25,10 @@ impl U256 {
 
     pub fn is_zero(&self) -> bool {
         self.0.is_zero()
+    }
+
+    pub fn is_even(&self) -> bool {
+        self.0.byte(0) % 2 == 0
     }
 }
 
@@ -69,6 +73,14 @@ impl Rem for U256 {
 
     fn rem(self, other: U256) -> Self::Output {
         U256(self.0 % other.0)
+    }
+}
+
+impl Div for U256 {
+    type Output = U256;
+
+    fn div(self, other: U256) -> Self::Output {
+        U256(self.0 / other.0)
     }
 }
 
@@ -124,5 +136,12 @@ mod tests {
             U256::from_hex("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798");
         let big_num = value.to_big_uint();
         assert_eq!(U256::from_big_uint(&big_num), value);
+    }
+
+    #[test]
+    fn u256_is_even() {
+        assert!(U256::default().is_even());
+        assert!(!U256::from_hex("1").is_even());
+        assert!(U256::from_hex("2").is_even());
     }
 }
