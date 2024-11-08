@@ -6,9 +6,10 @@ use num_traits::cast::FromPrimitive;
 use sha2::{Digest, Sha256};
 use std::ops::Deref;
 
+#[derive(Debug, PartialEq)]
 pub struct Signature {
-    r: U256,
-    s: U256,
+    pub r: U256,
+    pub s: U256,
 }
 
 pub struct Hash(U256);

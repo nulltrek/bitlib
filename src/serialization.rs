@@ -1,7 +1,15 @@
 use crate::curves::Point;
 use crate::curves::{add as cadd, mul as cmul, Curve};
+use crate::ecdsa::Signature;
 use crate::fields::{add as fadd, mul as fmul, pow as fpow, sub as fsub, Field, FiniteFieldU256};
 use crate::u256::U256;
+
+type Result<T> = std::result::Result<T, SerializationError>;
+
+#[derive(Debug, Clone, PartialEq)]
+enum SerializationError {
+    ParsingError(&'static str),
+}
 
 impl Point<U256> {
     // Serialize into Uncompressed SEC format
@@ -63,6 +71,87 @@ impl Point<U256> {
             _ => panic!("Unrecognized compressed SEC marker"),
         };
         Some(Self::coords(x, curve.compute_y(&x, y_is_even)))
+    }
+}
+
+impl Signature {
+    fn to_der(&self) -> Vec<u8> {
+        let comp_r = Self::compress(&self.r);
+        let comp_s = Self::compress(&self.s);
+
+        let mut enc_r = vec![0x02, comp_r.len() as u8];
+        enc_r.extend_from_slice(comp_r.as_slice());
+        let mut enc_s = vec![0x02, comp_s.len() as u8];
+        enc_s.extend_from_slice(comp_s.as_slice());
+
+        let mut enc_sig = vec![0x30, (enc_r.len() + enc_s.len()) as u8];
+        enc_sig.extend_from_slice(enc_r.as_slice());
+        enc_sig.extend_from_slice(enc_s.as_slice());
+
+        enc_sig
+    }
+
+    fn compress(num: &U256) -> Vec<u8> {
+        let mut cur_i = 0;
+        let bytes = num.to_big_endian().clone();
+        for (i, byte) in bytes.iter().enumerate() {
+            if *byte == 0 && i < bytes.len() - 1 {
+                cur_i += 1;
+            }
+        }
+        if bytes[cur_i] >= 0x80 {
+            [&[0_u8], &bytes[cur_i..bytes.len()]].concat()
+        } else {
+            bytes[cur_i..bytes.len()].to_vec()
+        }
+    }
+
+    fn parse(data: &[u8]) -> Result<Self> {
+        if data.len() < 2 {
+            return Err(SerializationError::ParsingError("Data too short"));
+        }
+
+        if data[0] != 0x30 {
+            return Err(SerializationError::ParsingError("Bad initial marker"));
+        }
+
+        let tot_len = data[1] as usize;
+        if data.len() != 2 + tot_len {
+            return Err(SerializationError::ParsingError("Bad signature length"));
+        }
+
+        if data[2] != 0x02 {
+            return Err(SerializationError::ParsingError("Bad marker for r"));
+        }
+        let len = data[3] as usize;
+        let (r_start, r_len, pad_len) = match len {
+            33 => (5, 32, 0),
+            _ => (4, len, 32 - len),
+        };
+        let r = vec![
+            &vec![0; pad_len].as_slice(),
+            &data[r_start..r_start + r_len],
+        ]
+        .concat();
+
+        if data[r_start + r_len] != 0x02 {
+            return Err(SerializationError::ParsingError("Bad marker for s"));
+        }
+        let len = data[r_start + r_len + 1] as usize;
+        let (s_start, s_len, pad_len) = match len {
+            33 => (r_start + r_len + 3, 32, 0),
+            _ => (r_start + r_len + 2, len, 32 - len),
+        };
+        let s = vec![
+            &vec![0; pad_len].as_slice(),
+            &data[s_start..s_start + s_len],
+        ]
+        .concat();
+
+        Ok(Signature {
+            r: U256::from_big_endian(r.as_slice()),
+            s: U256::from_big_endian(s.as_slice()),
+        })
     }
 }
 
@@ -321,5 +410,31 @@ mod tests {
             Point::<U256>::parse(&secp.curve, &pubkey.to_sec()),
             Some(*pubkey),
         );
+    }
+
+    #[test]
+    fn signature_serialization() {
+        let sig = Signature {
+            r: U256::from_hex("37206a0610995c58074999cb9767b87af4c4978db68c06e8e6e81d282047a7c6"),
+            s: U256::from_hex("8ca63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec"),
+        };
+        let data = [
+            0x30, 0x45, 0x02, 0x20, 0x37, 0x20, 0x6a, 0x06, 0x10, 0x99, 0x5c, 0x58, 0x07, 0x49,
+            0x99, 0xcb, 0x97, 0x67, 0xb8, 0x7a, 0xf4, 0xc4, 0x97, 0x8d, 0xb6, 0x8c, 0x06, 0xe8,
+            0xe6, 0xe8, 0x1d, 0x28, 0x20, 0x47, 0xa7, 0xc6, 0x02, 0x21, 0x00, 0x8c, 0xa6, 0x37,
+            0x59, 0xc1, 0x15, 0x7e, 0xbe, 0xae, 0xc0, 0xd0, 0x3c, 0xec, 0xca, 0x11, 0x9f, 0xc9,
+            0xa7, 0x5b, 0xf8, 0xe6, 0xd0, 0xfa, 0x65, 0xc8, 0x41, 0xc8, 0xe2, 0x73, 0x8c, 0xda,
+            0xec,
+        ];
+        assert_eq!(sig.to_der(), data);
+
+        assert_eq!(Signature::parse(&data), Ok(sig));
+
+        let sig = Signature {
+            r: U256::from_hex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+            s: U256::from_hex("0101010101010101010101010101010101010101010101010101010101010101"),
+        };
+
+        assert_eq!(Signature::parse(&sig.to_der()), Ok(sig));
     }
 }
