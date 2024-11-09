@@ -11,6 +11,40 @@ enum SerializationError {
     ParsingError(&'static str),
 }
 
+const BASE58_ALPHABET: &str = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+impl U256 {
+    pub fn to_base58(&self) -> String {
+        let bytes = self.to_big_endian();
+
+        let mut prefix = String::new();
+        for byte in bytes {
+            if byte == 0 {
+                prefix.push('1');
+            } else {
+                break;
+            }
+        }
+
+        let zero = U256::default();
+        let n58 = U256::from_big_endian(&[58]);
+
+        let mut result = String::new();
+        let mut num = *self;
+        while num > zero {
+            let rem = num % n58;
+            num = num / n58;
+            let index = rem.to_big_endian()[31] as usize;
+            // println!("{}", &BASE58_ALPHABET[index..index + 1]);
+            result.push_str(&BASE58_ALPHABET[index..index + 1]);
+        }
+
+        let rev: String = result.chars().rev().collect();
+        prefix.push_str(&rev);
+        return prefix;
+    }
+}
+
 impl Point<U256> {
     // Serialize into Uncompressed SEC format
     pub fn to_sec(&self) -> [u8; 65] {
@@ -436,5 +470,24 @@ mod tests {
         };
 
         assert_eq!(Signature::parse(&sig.to_der()), Ok(sig));
+    }
+
+    #[test]
+    fn base58_serialization() {
+        assert_eq!(
+            U256::from_hex("7c076ff316692a3d7eb3c3bb0f8b1488cf72e1afcd929e29307032997a838a3d")
+                .to_base58(),
+            "9MA8fRQrT4u8Zj8ZRd6MAiiyaxb2Y1CMpvVkHQu5hVM6",
+        );
+        assert_eq!(
+            U256::from_hex("00eff69ef2b1bd93a66ed5219add4fb51e11a840f404876325a1e8ffe0529a2c")
+                .to_base58(),
+            "14fE3H2E6XMp4SsxtwinF7w9a34ooUrwWe4WsW1458Pd",
+        );
+        assert_eq!(
+            U256::from_hex("c7207fee197d27c618aea621406f6bf5ef6fca38681d82b2f06fddbdce6feab6")
+                .to_base58(),
+            "EQJsjkd6JaGwxrjEhfeqPenqHwrBmPQZjJGNSCHBkcF7",
+        );
     }
 }
