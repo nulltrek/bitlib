@@ -1,5 +1,6 @@
-mod curves;
-mod ecdsa;
-mod fields;
-mod serialization;
-mod u256;
+pub mod curves;
+pub mod ecdsa;
+pub mod fields;
+pub mod hashing;
+pub mod serialization;
+pub mod u256;

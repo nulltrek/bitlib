@@ -1,47 +1,30 @@
+use crate::curves::Curve;
 use crate::curves::Point;
-use crate::curves::{add as cadd, mul as cmul, Curve};
-use crate::ecdsa::Signature;
-use crate::fields::{add as fadd, mul as fmul, pow as fpow, sub as fsub, Field, FiniteFieldU256};
+use crate::ecdsa::{PrivateKey, Signature};
+use crate::fields::FiniteFieldU256;
+use crate::hashing::{base58, base58_with_checksum, hash160};
 use crate::u256::U256;
 
 type Result<T> = std::result::Result<T, SerializationError>;
+
+pub enum Comp {
+    Compressed,
+    Uncompressed,
+}
+
+pub enum Net {
+    Testnet,
+    Mainnet,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 enum SerializationError {
     ParsingError(&'static str),
 }
 
-const BASE58_ALPHABET: &str = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-
 impl U256 {
     pub fn to_base58(&self) -> String {
-        let bytes = self.to_big_endian();
-
-        let mut prefix = String::new();
-        for byte in bytes {
-            if byte == 0 {
-                prefix.push('1');
-            } else {
-                break;
-            }
-        }
-
-        let zero = U256::default();
-        let n58 = U256::from_big_endian(&[58]);
-
-        let mut result = String::new();
-        let mut num = *self;
-        while num > zero {
-            let rem = num % n58;
-            num = num / n58;
-            let index = rem.to_big_endian()[31] as usize;
-            // println!("{}", &BASE58_ALPHABET[index..index + 1]);
-            result.push_str(&BASE58_ALPHABET[index..index + 1]);
-        }
-
-        let rev: String = result.chars().rev().collect();
-        prefix.push_str(&rev);
-        return prefix;
+        base58(self.to_big_endian())
     }
 }
 
@@ -105,6 +88,20 @@ impl Point<U256> {
             _ => panic!("Unrecognized compressed SEC marker"),
         };
         Some(Self::coords(x, curve.compute_y(&x, y_is_even)))
+    }
+
+    pub fn to_address(&self, compression: Comp, network: Net) -> String {
+        let data = match compression {
+            Comp::Compressed => self.to_csec().to_vec(),
+            Comp::Uncompressed => self.to_sec().to_vec(),
+        };
+        let hash = hash160(data);
+        let prefix = match network {
+            Net::Testnet => 0x6f,
+            Net::Mainnet => 0x00,
+        };
+        let addr = [vec![prefix], hash].concat();
+        base58_with_checksum(addr)
     }
 }
 
@@ -186,6 +183,27 @@ impl Signature {
             r: U256::from_big_endian(r.as_slice()),
             s: U256::from_big_endian(s.as_slice()),
         })
+    }
+}
+
+impl PrivateKey {
+    fn to_wif(&self, compression: Comp, network: Net) -> String {
+        let prefix = match network {
+            Net::Testnet => vec![0xef_u8],
+            Net::Mainnet => vec![0x80],
+        };
+        let suffix = match compression {
+            Comp::Compressed => vec![0x01_u8],
+            Comp::Uncompressed => vec![],
+        };
+        base58_with_checksum(
+            [
+                prefix.as_slice(),
+                &(*self).to_big_endian(),
+                suffix.as_slice(),
+            ]
+            .concat(),
+        )
     }
 }
 
@@ -473,7 +491,7 @@ mod tests {
     }
 
     #[test]
-    fn base58_serialization() {
+    fn base58_point_serialization() {
         assert_eq!(
             U256::from_hex("7c076ff316692a3d7eb3c3bb0f8b1488cf72e1afcd929e29307032997a838a3d")
                 .to_base58(),
@@ -488,6 +506,49 @@ mod tests {
             U256::from_hex("c7207fee197d27c618aea621406f6bf5ef6fca38681d82b2f06fddbdce6feab6")
                 .to_base58(),
             "EQJsjkd6JaGwxrjEhfeqPenqHwrBmPQZjJGNSCHBkcF7",
+        );
+    }
+
+    #[test]
+    fn point_to_address() {
+        let secp = Secp256k1::new();
+        let pubkey = secp.get_pubkey(&PrivateKey::new(U256::from_dec("5002")));
+        assert_eq!(
+            pubkey.to_address(Comp::Uncompressed, Net::Testnet),
+            "mmTPbXQFxboEtNRkwfh6K51jvdtHLxGeMA",
+        );
+
+        let pubkey = secp.get_pubkey(&PrivateKey::new(U256::from_dec("33632321603200000")));
+        assert_eq!(
+            pubkey.to_address(Comp::Compressed, Net::Testnet),
+            "mopVkxp8UhXqRYbCYJsbeE1h1fiF64jcoH",
+        );
+
+        let pubkey = secp.get_pubkey(&PrivateKey::new(U256::from_hex("12345deadbeef")));
+        assert_eq!(
+            pubkey.to_address(Comp::Compressed, Net::Mainnet),
+            "1F1Pn2y6pDb68E5nYJJeba4TLg2U7B6KF1",
+        );
+    }
+
+    #[test]
+    fn privkey_to_wif() {
+        let privkey = PrivateKey::new(U256::from_dec("5003"));
+        assert_eq!(
+            privkey.to_wif(Comp::Compressed, Net::Testnet),
+            "cMahea7zqjxrtgAbB7LSGbcQUr1uX1ojuat9jZodMN8rFTv2sfUK",
+        );
+
+        let privkey = PrivateKey::new(U256::from_dec("33715652388894101"));
+        assert_eq!(
+            privkey.to_wif(Comp::Uncompressed, Net::Testnet),
+            "91avARGdfge8E4tZfYLoxeJ5sGBdNJQH4kvjpWAxgzczjbCwxic",
+        );
+
+        let privkey = PrivateKey::new(U256::from_hex("0x54321deadbeef"));
+        assert_eq!(
+            privkey.to_wif(Comp::Compressed, Net::Mainnet),
+            "KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgiuQJv1h8Ytr2S53a",
         );
     }
 }

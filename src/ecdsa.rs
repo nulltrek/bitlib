@@ -1,9 +1,8 @@
 use crate::curves::{add as cadd, mul as cmul, Curve, Point};
 use crate::fields::{add as fadd, div as fdiv, mul as fmul, Field, FiniteFieldU256};
+use crate::hashing::{hash256, hmac};
 use crate::u256::U256;
-use hmac::{Hmac, Mac};
 use num_traits::cast::FromPrimitive;
-use sha2::{Digest, Sha256};
 use std::ops::Deref;
 
 #[derive(Debug, PartialEq)]
@@ -16,15 +15,8 @@ pub struct Hash(U256);
 
 impl Hash {
     fn hash256(data: impl AsRef<[u8]>) -> Hash {
-        let digest = Sha256::digest(Sha256::digest(data));
-        Hash(U256::from_big_endian(digest.as_slice()))
+        Hash(U256::from_big_endian(hash256(data).as_slice()))
     }
-}
-
-fn hmac(key: &[u8], data: &[u8]) -> [u8; 32] {
-    let mut mac = Hmac::<Sha256>::new_from_slice(key).unwrap();
-    mac.update(data);
-    mac.finalize().into_bytes().into()
 }
 
 impl From<U256> for Hash {
@@ -38,6 +30,14 @@ pub struct PrivateKey(U256);
 impl PrivateKey {
     pub fn new(value: U256) -> PrivateKey {
         PrivateKey(value)
+    }
+}
+
+impl Deref for PrivateKey {
+    type Target = U256;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -159,14 +159,6 @@ impl Secp256k1 {
 mod tests {
     use super::*;
     use crate::curves::mul;
-
-    #[test]
-    fn test_hmac() {
-        assert_eq!(
-            U256::from_big_endian(&hmac(b"my secret and secure key", b"input message")),
-            U256::from_hex("97d2a569059bbcd8ead4444ff99071f4c01d005bcefe0d3567e1be628e5fdcd9")
-        );
-    }
 
     #[test]
     fn curve_construction() {

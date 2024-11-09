@@ -120,6 +120,7 @@ impl U256 {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 
