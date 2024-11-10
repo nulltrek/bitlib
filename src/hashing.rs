@@ -3,6 +3,14 @@ use num_bigint::BigUint;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
 
+pub fn to_hex_str(data: impl AsRef<[u8]>) -> String {
+    data.as_ref()
+        .iter()
+        .map(|x| format!("{:02x}", x))
+        .collect::<Vec<_>>()
+        .join("")
+}
+
 pub fn hash256(data: impl AsRef<[u8]>) -> Vec<u8> {
     let digest = Sha256::digest(Sha256::digest(data));
     digest.to_vec()
@@ -55,6 +63,16 @@ pub fn base58_with_checksum(data: impl AsRef<[u8]>) -> String {
 mod tests {
     use super::*;
     use crate::u256::U256;
+
+    #[test]
+    fn test_to_hex_string() {
+        assert_eq!(to_hex_str(&[0xec_u8, 0x20, 0x8b, 0xaa, 0x0f]), "ec208baa0f");
+        let reversed = [0xec_u8, 0x20, 0x8b, 0xaa, 0x0f]
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>();
+        assert_eq!(to_hex_str(&reversed), "0faa8b20ec");
+    }
 
     #[test]
     fn test_hash256() {

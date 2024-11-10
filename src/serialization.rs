@@ -5,8 +5,6 @@ use crate::fields::FiniteFieldU256;
 use crate::hashing::{base58, base58_with_checksum, hash160};
 use crate::u256::U256;
 
-type Result<T> = std::result::Result<T, SerializationError>;
-
 pub enum Comp {
     Compressed,
     Uncompressed,
@@ -18,9 +16,20 @@ pub enum Net {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum SerializationError {
+pub enum SerializationError {
     ParsingError(&'static str),
     NotEnoughData,
+}
+
+pub type Result<T> = std::result::Result<T, SerializationError>;
+
+pub fn slice_to_array<T: Default + Copy, const LEN: usize>(slice: &[T]) -> [T; LEN]
+where
+    T: Clone,
+{
+    let mut array: [T; LEN] = [T::default(); LEN];
+    array.clone_from_slice(&slice);
+    array
 }
 
 impl U256 {
@@ -211,34 +220,40 @@ impl PrivateKey {
 pub mod varint {
     use super::*;
 
-    pub fn parse(data: &[u8]) -> Result<u64> {
+    pub fn parse(data: &[u8]) -> Result<(u64, usize)> {
         if data.len() == 0 {
             return Err(SerializationError::NotEnoughData);
         }
         let mut result = [0_u8; 8];
-        match data[0] {
+        let bytes_read = match data[0] {
             0xfd => {
                 if data.len() < 3 {
                     return Err(SerializationError::NotEnoughData);
                 }
                 result[0..2].copy_from_slice(&data[1..3]);
+                3
             }
             0xfe => {
                 if data.len() < 5 {
                     return Err(SerializationError::NotEnoughData);
                 }
                 result[0..4].copy_from_slice(&data[1..5]);
+                5
             }
             0xff => {
                 if data.len() < 9 {
                     return Err(SerializationError::NotEnoughData);
                 }
                 result[0..8].copy_from_slice(&data[1..9]);
+                9
             }
-            _ => result[0] = data[0],
+            _ => {
+                result[0] = data[0];
+                1
+            }
         };
 
-        Ok(u64::from_le_bytes(result))
+        Ok((u64::from_le_bytes(result), bytes_read))
     }
 
     pub fn encode(num: u64) -> Vec<u8> {
@@ -258,6 +273,11 @@ pub mod varint {
 mod tests {
     use super::*;
     use crate::ecdsa::{PrivateKey, Secp256k1};
+
+    #[test]
+    fn slice_array_conversion() {
+        assert_eq!(slice_to_array(&[1, 2, 3]), [1, 2, 3]);
+    }
 
     #[test]
     fn point_to_sec() {
@@ -602,16 +622,17 @@ mod tests {
     #[test]
     fn parse_varint() {
         // Parse correct data
-        for (data, result) in [
-            (vec![0x50], 0x50),
-            (vec![0xfd, 0x1a, 0xe3], 0xe31a),
-            (vec![0xfe, 0x1a, 0xe3, 0x46, 0xb4], 0xb446e31a),
+        for (data, result, bytes_read) in [
+            (vec![0x50], 0x50, 1),
+            (vec![0xfd, 0x1a, 0xe3], 0xe31a, 3),
+            (vec![0xfe, 0x1a, 0xe3, 0x46, 0xb4], 0xb446e31a, 5),
             (
                 vec![0xff, 0x1a, 0xe3, 0x46, 0xb4, 0x67, 0x4a, 0xcc, 0x98],
                 0x98cc4a67b446e31a,
+                9,
             ),
         ] {
-            assert_eq!(varint::parse(data.as_slice()), Ok(result));
+            assert_eq!(varint::parse(data.as_slice()), Ok((result, bytes_read)));
         }
 
         // Throw error if data is not enough
@@ -628,25 +649,29 @@ mod tests {
         }
 
         // Ignore exceeding data
-        for (data, result) in [
+        for (data, result, bytes_read) in [
             (
                 vec![0x50, 0x1a, 0xe3, 0x46, 0xb4, 0x67, 0x4a, 0xcc, 0x98],
                 0x50,
+                1,
             ),
             (
                 vec![0xfd, 0x1a, 0xe3, 0x46, 0xb4, 0x67, 0x4a, 0xcc, 0x98],
                 0xe31a,
+                3,
             ),
             (
                 vec![0xfe, 0x1a, 0xe3, 0x46, 0xb4, 0x67, 0x4a, 0xcc, 0x98],
                 0xb446e31a,
+                5,
             ),
             (
                 vec![0xff, 0x1a, 0xe3, 0x46, 0xb4, 0x67, 0x4a, 0xcc, 0x98, 0x12],
                 0x98cc4a67b446e31a,
+                9,
             ),
         ] {
-            assert_eq!(varint::parse(data.as_slice()), Ok(result));
+            assert_eq!(varint::parse(data.as_slice()), Ok((result, bytes_read)));
         }
     }
 
@@ -668,7 +693,9 @@ mod tests {
     #[test]
     fn encode_parse_varint() {
         for num in [0x50, 0xe31a, 0xb446e31a, 0x98cc4a67b446e31a] {
-            assert_eq!(varint::parse(varint::encode(num).as_slice()), Ok(num));
+            let result = varint::parse(varint::encode(num).as_slice());
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap().0, num);
         }
     }
 }

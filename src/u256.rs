@@ -11,6 +11,9 @@ impl U256 {
     pub fn from_big_endian(slice: &[u8]) -> U256 {
         U256(primitive_types::U256::from_big_endian(slice))
     }
+    pub fn from_little_endian(slice: &[u8]) -> U256 {
+        U256(primitive_types::U256::from_little_endian(slice))
+    }
     pub fn from_hex(hex: &str) -> U256 {
         U256(primitive_types::U256::from_str_radix(hex, 16).unwrap())
     }

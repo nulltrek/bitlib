@@ -1,7 +1,8 @@
 use crate::curves::{add as cadd, mul as cmul, Curve, Point};
 use crate::fields::{add as fadd, div as fdiv, mul as fmul, Field, FiniteFieldU256};
-use crate::hashing::{hash256, hmac};
+use crate::hashing::{hash256, hmac, to_hex_str};
 use crate::u256::U256;
+use core::fmt;
 use num_traits::cast::FromPrimitive;
 use std::ops::Deref;
 
@@ -11,6 +12,7 @@ pub struct Signature {
     pub s: U256,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Hash(U256);
 
 impl Hash {
@@ -22,6 +24,12 @@ impl Hash {
 impl From<U256> for Hash {
     fn from(num: U256) -> Self {
         Hash(num)
+    }
+}
+
+impl fmt::Display for Hash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", to_hex_str(self.0.to_big_endian()),)
     }
 }
 
