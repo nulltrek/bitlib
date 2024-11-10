@@ -20,6 +20,7 @@ pub enum Net {
 #[derive(Debug, Clone, PartialEq)]
 enum SerializationError {
     ParsingError(&'static str),
+    NotEnoughData,
 }
 
 impl U256 {
@@ -204,6 +205,52 @@ impl PrivateKey {
             ]
             .concat(),
         )
+    }
+}
+
+pub mod varint {
+    use super::*;
+
+    pub fn parse(data: &[u8]) -> Result<u64> {
+        if data.len() == 0 {
+            return Err(SerializationError::NotEnoughData);
+        }
+        let mut result = [0_u8; 8];
+        match data[0] {
+            0xfd => {
+                if data.len() < 3 {
+                    return Err(SerializationError::NotEnoughData);
+                }
+                result[0..2].copy_from_slice(&data[1..3]);
+            }
+            0xfe => {
+                if data.len() < 5 {
+                    return Err(SerializationError::NotEnoughData);
+                }
+                result[0..4].copy_from_slice(&data[1..5]);
+            }
+            0xff => {
+                if data.len() < 9 {
+                    return Err(SerializationError::NotEnoughData);
+                }
+                result[0..8].copy_from_slice(&data[1..9]);
+            }
+            _ => result[0] = data[0],
+        };
+
+        Ok(u64::from_le_bytes(result))
+    }
+
+    pub fn encode(num: u64) -> Vec<u8> {
+        if num < 0xfd {
+            vec![num.to_le_bytes()[0]]
+        } else if num < 0x10000 {
+            [vec![0xfd], num.to_le_bytes()[0..2].to_vec()].concat()
+        } else if num < 0x100000000 {
+            [vec![0xfe], num.to_le_bytes()[0..4].to_vec()].concat()
+        } else {
+            [vec![0xff], num.to_le_bytes().to_vec()].concat()
+        }
     }
 }
 
@@ -550,5 +597,78 @@ mod tests {
             privkey.to_wif(Comp::Compressed, Net::Mainnet),
             "KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgiuQJv1h8Ytr2S53a",
         );
+    }
+
+    #[test]
+    fn parse_varint() {
+        // Parse correct data
+        for (data, result) in [
+            (vec![0x50], 0x50),
+            (vec![0xfd, 0x1a, 0xe3], 0xe31a),
+            (vec![0xfe, 0x1a, 0xe3, 0x46, 0xb4], 0xb446e31a),
+            (
+                vec![0xff, 0x1a, 0xe3, 0x46, 0xb4, 0x67, 0x4a, 0xcc, 0x98],
+                0x98cc4a67b446e31a,
+            ),
+        ] {
+            assert_eq!(varint::parse(data.as_slice()), Ok(result));
+        }
+
+        // Throw error if data is not enough
+        for data in [
+            vec![],
+            vec![0xfd, 0x1a],
+            vec![0xfe, 0x1a, 0xe3, 0x46],
+            vec![0xff, 0x1a, 0xe3, 0x46, 0xb4, 0x67, 0x4a, 0xcc],
+        ] {
+            assert_eq!(
+                varint::parse(data.as_slice()),
+                Err(SerializationError::NotEnoughData)
+            );
+        }
+
+        // Ignore exceeding data
+        for (data, result) in [
+            (
+                vec![0x50, 0x1a, 0xe3, 0x46, 0xb4, 0x67, 0x4a, 0xcc, 0x98],
+                0x50,
+            ),
+            (
+                vec![0xfd, 0x1a, 0xe3, 0x46, 0xb4, 0x67, 0x4a, 0xcc, 0x98],
+                0xe31a,
+            ),
+            (
+                vec![0xfe, 0x1a, 0xe3, 0x46, 0xb4, 0x67, 0x4a, 0xcc, 0x98],
+                0xb446e31a,
+            ),
+            (
+                vec![0xff, 0x1a, 0xe3, 0x46, 0xb4, 0x67, 0x4a, 0xcc, 0x98, 0x12],
+                0x98cc4a67b446e31a,
+            ),
+        ] {
+            assert_eq!(varint::parse(data.as_slice()), Ok(result));
+        }
+    }
+
+    #[test]
+    fn encode_varint() {
+        for (data, result) in [
+            (0x50, vec![0x50]),
+            (0xe31a, vec![0xfd, 0x1a, 0xe3]),
+            (0xb446e31a, vec![0xfe, 0x1a, 0xe3, 0x46, 0xb4]),
+            (
+                0x98cc4a67b446e31a,
+                vec![0xff, 0x1a, 0xe3, 0x46, 0xb4, 0x67, 0x4a, 0xcc, 0x98],
+            ),
+        ] {
+            assert_eq!(varint::encode(data), result);
+        }
+    }
+
+    #[test]
+    fn encode_parse_varint() {
+        for num in [0x50, 0xe31a, 0xb446e31a, 0x98cc4a67b446e31a] {
+            assert_eq!(varint::parse(varint::encode(num).as_slice()), Ok(num));
+        }
     }
 }
