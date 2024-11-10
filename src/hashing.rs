@@ -2,6 +2,7 @@ use hmac::{Hmac, Mac};
 use num_bigint::BigUint;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
+use std::num::ParseIntError;
 
 pub fn to_hex_str(data: impl AsRef<[u8]>) -> String {
     data.as_ref()
@@ -9,6 +10,13 @@ pub fn to_hex_str(data: impl AsRef<[u8]>) -> String {
         .map(|x| format!("{:02x}", x))
         .collect::<Vec<_>>()
         .join("")
+}
+
+pub fn from_hex_str(s: &str) -> Result<Vec<u8>, ParseIntError> {
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+        .collect()
 }
 
 pub fn hash256(data: impl AsRef<[u8]>) -> Vec<u8> {
@@ -72,6 +80,21 @@ mod tests {
             .rev()
             .collect::<Vec<_>>();
         assert_eq!(to_hex_str(&reversed), "0faa8b20ec");
+    }
+
+    #[test]
+    fn test_from_hex_string() {
+        assert_eq!(
+            from_hex_str("ec208baa0f").unwrap(),
+            &[0xec_u8, 0x20, 0x8b, 0xaa, 0x0f]
+        );
+        assert_eq!(
+            from_hex_str("0faa8b20ec").unwrap(),
+            [0xec_u8, 0x20, 0x8b, 0xaa, 0x0f]
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

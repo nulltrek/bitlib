@@ -1,19 +1,10 @@
 use crate::curves::Curve;
 use crate::curves::Point;
+use crate::definitions::{Compression, Network};
 use crate::ecdsa::{PrivateKey, Signature};
 use crate::fields::FiniteFieldU256;
 use crate::hashing::{base58, base58_with_checksum, hash160};
 use crate::u256::U256;
-
-pub enum Comp {
-    Compressed,
-    Uncompressed,
-}
-
-pub enum Net {
-    Testnet,
-    Mainnet,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SerializationError {
@@ -100,15 +91,15 @@ impl Point<U256> {
         Some(Self::coords(x, curve.compute_y(&x, y_is_even)))
     }
 
-    pub fn to_address(&self, compression: Comp, network: Net) -> String {
+    pub fn to_address(&self, compression: Compression, network: Network) -> String {
         let data = match compression {
-            Comp::Compressed => self.to_csec().to_vec(),
-            Comp::Uncompressed => self.to_sec().to_vec(),
+            Compression::Yes => self.to_csec().to_vec(),
+            Compression::No => self.to_sec().to_vec(),
         };
         let hash = hash160(data);
         let prefix = match network {
-            Net::Testnet => 0x6f,
-            Net::Mainnet => 0x00,
+            Network::Test => 0x6f,
+            Network::Main => 0x00,
         };
         let addr = [vec![prefix], hash].concat();
         base58_with_checksum(addr)
@@ -197,14 +188,14 @@ impl Signature {
 }
 
 impl PrivateKey {
-    fn to_wif(&self, compression: Comp, network: Net) -> String {
+    fn to_wif(&self, compression: Compression, network: Network) -> String {
         let prefix = match network {
-            Net::Testnet => vec![0xef_u8],
-            Net::Mainnet => vec![0x80],
+            Network::Test => vec![0xef_u8],
+            Network::Main => vec![0x80],
         };
         let suffix = match compression {
-            Comp::Compressed => vec![0x01_u8],
-            Comp::Uncompressed => vec![],
+            Compression::Yes => vec![0x01_u8],
+            Compression::No => vec![],
         };
         base58_with_checksum(
             [
@@ -581,19 +572,19 @@ mod tests {
         let secp = Secp256k1::new();
         let pubkey = secp.get_pubkey(&PrivateKey::new(U256::from_dec("5002")));
         assert_eq!(
-            pubkey.to_address(Comp::Uncompressed, Net::Testnet),
+            pubkey.to_address(Compression::No, Network::Test),
             "mmTPbXQFxboEtNRkwfh6K51jvdtHLxGeMA",
         );
 
         let pubkey = secp.get_pubkey(&PrivateKey::new(U256::from_dec("33632321603200000")));
         assert_eq!(
-            pubkey.to_address(Comp::Compressed, Net::Testnet),
+            pubkey.to_address(Compression::Yes, Network::Test),
             "mopVkxp8UhXqRYbCYJsbeE1h1fiF64jcoH",
         );
 
         let pubkey = secp.get_pubkey(&PrivateKey::new(U256::from_hex("12345deadbeef")));
         assert_eq!(
-            pubkey.to_address(Comp::Compressed, Net::Mainnet),
+            pubkey.to_address(Compression::Yes, Network::Main),
             "1F1Pn2y6pDb68E5nYJJeba4TLg2U7B6KF1",
         );
     }
@@ -602,19 +593,19 @@ mod tests {
     fn privkey_to_wif() {
         let privkey = PrivateKey::new(U256::from_dec("5003"));
         assert_eq!(
-            privkey.to_wif(Comp::Compressed, Net::Testnet),
+            privkey.to_wif(Compression::Yes, Network::Test),
             "cMahea7zqjxrtgAbB7LSGbcQUr1uX1ojuat9jZodMN8rFTv2sfUK",
         );
 
         let privkey = PrivateKey::new(U256::from_dec("33715652388894101"));
         assert_eq!(
-            privkey.to_wif(Comp::Uncompressed, Net::Testnet),
+            privkey.to_wif(Compression::No, Network::Test),
             "91avARGdfge8E4tZfYLoxeJ5sGBdNJQH4kvjpWAxgzczjbCwxic",
         );
 
         let privkey = PrivateKey::new(U256::from_hex("0x54321deadbeef"));
         assert_eq!(
-            privkey.to_wif(Comp::Compressed, Net::Mainnet),
+            privkey.to_wif(Compression::Yes, Network::Main),
             "KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgiuQJv1h8Ytr2S53a",
         );
     }
