@@ -26,6 +26,10 @@ impl U256 {
         self.0.to_big_endian()
     }
 
+    pub fn to_little_endian(&self) -> [u8; 32] {
+        self.0.to_little_endian()
+    }
+
     pub fn is_zero(&self) -> bool {
         self.0.is_zero()
     }

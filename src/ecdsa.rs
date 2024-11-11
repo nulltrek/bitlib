@@ -27,6 +27,14 @@ impl From<U256> for Hash {
     }
 }
 
+impl Deref for Hash {
+    type Target = U256;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl fmt::Display for Hash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", to_hex_str(self.0.to_big_endian()),)
