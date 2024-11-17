@@ -37,11 +37,19 @@ fn fetch(network: Network, path: &str) -> Result<String> {
         .into_string()?)
 }
 
-pub fn fetch_tx(network: Network, id: &TxId) -> Result<Vec<u8>> {
-    let body = fetch(network, &format!("/tx/{}/hex", id))?;
-    match from_hex_str(&body) {
-        Err(_) => Err(NetworkError::ParsingError),
-        Ok(bytes) => Ok(bytes),
+pub trait TxFetcher {
+    fn fetch_tx(&self, network: Network, id: &TxId) -> Result<Vec<u8>>;
+}
+
+pub struct NetFetcher;
+
+impl TxFetcher for NetFetcher {
+    fn fetch_tx(&self, network: Network, id: &TxId) -> Result<Vec<u8>> {
+        let body = fetch(network, &format!("/tx/{}/hex", id))?;
+        match from_hex_str(&body) {
+            Err(_) => Err(NetworkError::ParsingError),
+            Ok(bytes) => Ok(bytes),
+        }
     }
 }
 
@@ -53,12 +61,13 @@ mod tests {
 
     #[test]
     fn fetch_genesis() {
-        fetch_tx(
-            Network::Main,
-            &TxId::from(U256::from_hex(
-                "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b",
-            )),
-        )
-        .unwrap();
+        NetFetcher
+            .fetch_tx(
+                Network::Main,
+                &TxId::from(U256::from_hex(
+                    "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b",
+                )),
+            )
+            .unwrap();
     }
 }
