@@ -10,6 +10,8 @@ use crate::u256::U256;
 pub enum SerializationError {
     ParsingError(&'static str),
     NotEnoughData,
+    InvalidOpcode(u8),
+    InvalidState,
 }
 
 pub type Result<T> = std::result::Result<T, SerializationError>;
@@ -19,7 +21,7 @@ where
     T: Clone,
 {
     let mut array: [T; LEN] = [T::default(); LEN];
-    array.clone_from_slice(&slice);
+    array[..slice.len()].clone_from_slice(&slice);
     array
 }
 
@@ -268,6 +270,10 @@ mod tests {
     #[test]
     fn slice_array_conversion() {
         assert_eq!(slice_to_array(&[1, 2, 3]), [1, 2, 3]);
+        assert_eq!(
+            slice_to_array::<u8, 8>(&[1, 2, 3]),
+            [1, 2, 3, 0, 0, 0, 0, 0]
+        );
     }
 
     #[test]
