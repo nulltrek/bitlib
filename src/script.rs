@@ -124,6 +124,7 @@ lazy_static! {
     ]);
 }
 
+#[derive(Clone)]
 enum Element {
     Op(u8),
     Data(u8, Vec<u8>),
@@ -170,8 +171,15 @@ impl fmt::Debug for Element {
     }
 }
 
+#[derive(Clone)]
 pub struct Script {
     code: Vec<Element>,
+}
+
+impl Default for Script {
+    fn default() -> Script {
+        Script { code: vec![] }
+    }
 }
 
 impl Script {
@@ -188,6 +196,11 @@ impl Script {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
+        if self.code.len() == 0 {
+            // Blank script is a zeroed byte
+            return vec![0x00];
+        }
+
         let mut code: Vec<u8> = vec![];
         for element in &self.code {
             match element {
@@ -290,6 +303,11 @@ impl fmt::Display for Script {
 mod tests {
     use super::*;
     use hex_literal::hex;
+
+    #[test]
+    fn script_default() {
+        assert_eq!(Script::default().serialize(), vec![0x00]);
+    }
 
     #[test]
     fn script_parsing() {
