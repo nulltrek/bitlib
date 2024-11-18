@@ -1,8 +1,11 @@
+use crate::u256::U256;
+use core::fmt;
 use hmac::{Hmac, Mac};
 use num_bigint::BigUint;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
 use std::num::ParseIntError;
+use std::ops::Deref;
 
 pub fn to_hex_str(data: impl AsRef<[u8]>) -> String {
     data.as_ref()
@@ -65,6 +68,38 @@ pub fn base58(data: impl AsRef<[u8]>) -> String {
 pub fn base58_with_checksum(data: impl AsRef<[u8]>) -> String {
     let hash = hash256(&data);
     base58([data.as_ref(), &hash[..4]].concat())
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hash(U256);
+
+impl Hash {
+    pub fn hash256(data: impl AsRef<[u8]>) -> Hash {
+        Hash(U256::from_big_endian(hash256(data).as_slice()))
+    }
+    pub fn to_string(&self) -> String {
+        to_hex_str(self.0.to_big_endian())
+    }
+}
+
+impl From<U256> for Hash {
+    fn from(num: U256) -> Self {
+        Hash(num)
+    }
+}
+
+impl Deref for Hash {
+    type Target = U256;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl fmt::Display for Hash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
 }
 
 #[cfg(test)]

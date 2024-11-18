@@ -1,8 +1,7 @@
 use crate::curves::{add as cadd, mul as cmul, Curve, Point};
 use crate::fields::{add as fadd, div as fdiv, mul as fmul, Field, FiniteFieldU256};
-use crate::hashing::{hash256, hmac, to_hex_str};
+use crate::hashing::{hmac, Hash};
 use crate::u256::U256;
-use core::fmt;
 use num_traits::cast::FromPrimitive;
 use std::ops::Deref;
 
@@ -10,38 +9,6 @@ use std::ops::Deref;
 pub struct Signature {
     pub r: U256,
     pub s: U256,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Hash(U256);
-
-impl Hash {
-    pub fn hash256(data: impl AsRef<[u8]>) -> Hash {
-        Hash(U256::from_big_endian(hash256(data).as_slice()))
-    }
-    pub fn to_string(&self) -> String {
-        to_hex_str(self.0.to_big_endian())
-    }
-}
-
-impl From<U256> for Hash {
-    fn from(num: U256) -> Self {
-        Hash(num)
-    }
-}
-
-impl Deref for Hash {
-    type Target = U256;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl fmt::Display for Hash {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_string())
-    }
 }
 
 pub struct PrivateKey(U256);
@@ -109,7 +76,7 @@ impl Secp256k1 {
             Point::Inf => panic!("Result for signature random challenge is a point at infinity."),
             Point::Coords { x, .. } => x,
         };
-        let mut s = fdiv!(field, fadd!(field, hash.0, fmul!(field, rx, privkey.0)), k);
+        let mut s = fdiv!(field, fadd!(field, *hash, fmul!(field, rx, privkey.0)), k);
         // Only use low-s values for malleability reasons
         // n >> 1 == n / 2
         if s > self.n >> 1 {
@@ -119,7 +86,7 @@ impl Secp256k1 {
     }
 
     fn gen_k(&self, hash: &Hash, privkey: &PrivateKey) -> U256 {
-        let mut z = hash.0;
+        let mut z = **hash;
         if z > self.n {
             z = z - self.n;
         }
@@ -164,7 +131,7 @@ impl Secp256k1 {
         let curve = &self.curve;
         let field = FiniteFieldU256::new(self.n);
 
-        let u = fdiv!(field, hash.0, signature.s);
+        let u = fdiv!(field, *hash, signature.s);
         let v = fdiv!(field, signature.r, signature.s);
         let result = cadd!(curve, cmul!(curve, u, self.g), cmul!(curve, v, pubkey.0));
         match result {
@@ -206,7 +173,7 @@ mod tests {
             U256::from_hex("61de6d95231cd89026e286df3b6ae4a894a3378e393e93a0f45b666329a0ae34"),
         ));
 
-        let hash = Hash(U256::from_hex(
+        let hash = Hash::from(U256::from_hex(
             "ec208baa0fc1c19f708a9ca96fdeff3ac3f230bb4a7ba4aede4942ad003c0f60",
         ));
         let signature = Signature {
@@ -215,7 +182,7 @@ mod tests {
         };
         assert!(secp.verify(&hash, &signature, &pubkey));
 
-        let hash = Hash(U256::from_hex(
+        let hash = Hash::from(U256::from_hex(
             "7c076ff316692a3d7eb3c3bb0f8b1488cf72e1afcd929e29307032997a838a3d",
         ));
         let signature = Signature {
@@ -229,7 +196,7 @@ mod tests {
     fn sign_data() {
         let secp = Secp256k1::new();
         let privkey = PrivateKey(U256::from_big_endian(b"my secret"));
-        let hash = Hash(U256::from_big_endian(b"my data"));
+        let hash = Hash::from(U256::from_big_endian(b"my data"));
         let signature = secp.sign(&hash, &privkey);
         assert!(secp.verify(&hash, &signature, &secp.get_pubkey(&privkey)))
     }

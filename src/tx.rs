@@ -1,6 +1,4 @@
-use crate::definitions::Network;
-use crate::ecdsa::Hash;
-use crate::hashing::{hash256, to_hex_str};
+use crate::hashing::{hash256, to_hex_str, Hash};
 use crate::network::{NetworkError, TxFetcher};
 use crate::script::Script;
 use crate::serialization::{slice_to_array, varint, SerializationError};
