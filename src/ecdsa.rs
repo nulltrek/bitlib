@@ -19,6 +19,9 @@ impl Hash {
     fn hash256(data: impl AsRef<[u8]>) -> Hash {
         Hash(U256::from_big_endian(hash256(data).as_slice()))
     }
+    fn to_string(&self) -> String {
+        to_hex_str(self.0.to_big_endian())
+    }
 }
 
 impl From<U256> for Hash {
@@ -37,7 +40,7 @@ impl Deref for Hash {
 
 impl fmt::Display for Hash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", to_hex_str(self.0.to_big_endian()),)
+        write!(f, "{}", self.to_string())
     }
 }
 
