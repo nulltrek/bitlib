@@ -12,14 +12,14 @@ pub struct Signature {
     pub s: U256,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Hash(U256);
 
 impl Hash {
-    fn hash256(data: impl AsRef<[u8]>) -> Hash {
+    pub fn hash256(data: impl AsRef<[u8]>) -> Hash {
         Hash(U256::from_big_endian(hash256(data).as_slice()))
     }
-    fn to_string(&self) -> String {
+    pub fn to_string(&self) -> String {
         to_hex_str(self.0.to_big_endian())
     }
 }

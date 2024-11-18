@@ -39,7 +39,6 @@ fn fetch(network: Network, path: &str) -> Result<String> {
 }
 
 pub trait TxFetcher {
-    fn new(network: Network) -> Self;
     fn fetch_tx(&mut self, id: &TxId) -> Result<Vec<u8>>;
 }
 
@@ -48,13 +47,16 @@ pub struct NetFetcher {
     cache: HashMap<String, Vec<u8>>,
 }
 
-impl TxFetcher for NetFetcher {
+impl NetFetcher {
     fn new(network: Network) -> Self {
         Self {
             network,
             cache: HashMap::new(),
         }
     }
+}
+
+impl TxFetcher for NetFetcher {
     fn fetch_tx(&mut self, id: &TxId) -> Result<Vec<u8>> {
         if let Some(tx) = self.cache.get(&id.to_string()) {
             return Ok(tx.clone());

@@ -11,6 +11,7 @@ use core::fmt;
 pub enum TxError {
     NetworkError(NetworkError),
     SerializationError(SerializationError),
+    InputNotFound(usize),
     GenericError,
 }
 
@@ -30,6 +31,24 @@ pub type Result<T> = std::result::Result<T, TxError>;
 
 pub type TxId = Hash;
 
+pub enum SigHash {
+    All,
+    None,
+    Single,
+}
+
+impl SigHash {
+    fn to_little_endian(&self) -> Vec<u8> {
+        let value: u32 = match self {
+            Self::All => 1,
+            Self::None => 2,
+            Self::Single => 3,
+        };
+        value.to_le_bytes().to_vec()
+    }
+}
+
+#[derive(Clone)]
 struct TxInput {
     prev_tx: TxId,
     prev_tx_index: u32,
@@ -77,6 +96,14 @@ impl TxInput {
         let tx = Tx::parse(&tx_data)?;
         Ok(tx.outputs[self.prev_tx_index as usize].amount)
     }
+
+    pub fn get_script_pubkey<F: TxFetcher>(&self, fetcher: &mut F) -> Result<Script> {
+        let tx_data = fetcher.fetch_tx(&self.prev_tx)?;
+        let tx = Tx::parse(&tx_data)?;
+        Ok(tx.outputs[self.prev_tx_index as usize]
+            .script_pubkey
+            .clone())
+    }
 }
 
 impl fmt::Display for TxInput {
@@ -89,6 +116,7 @@ impl fmt::Display for TxInput {
     }
 }
 
+#[derive(Clone)]
 struct TxOutput {
     amount: u64,
     script_pubkey: Script,
@@ -126,6 +154,7 @@ impl fmt::Display for TxOutput {
     }
 }
 
+#[derive(Clone)]
 pub struct Tx {
     version: u32,
     inputs: Vec<TxInput>,
@@ -212,6 +241,32 @@ impl Tx {
 
         Ok(input_value - self.outputs.iter().map(|tx_out| tx_out.amount).sum::<u64>())
     }
+
+    pub fn sig_hash<F: TxFetcher>(
+        &self,
+        fetcher: &mut F,
+        input_idx: usize,
+        flag: SigHash,
+    ) -> Result<Hash> {
+        if input_idx >= self.inputs.len() {
+            return Err(TxError::InputNotFound(input_idx));
+        }
+
+        let mut mod_tx = self.clone();
+        // Clean the inputs except the one we want to sign
+        for i in 0..mod_tx.inputs.len() {
+            let mut input = &mut mod_tx.inputs[i];
+
+            if i == input_idx {
+                input.script_sig = input.get_script_pubkey(fetcher)?;
+                println!("{:?}", to_hex_str(input.script_sig.serialize()));
+            } else {
+                input.script_sig = Script::default();
+            }
+        }
+        let bytes = [mod_tx.serialize(), flag.to_little_endian()].concat();
+        Ok(Hash::hash256(&bytes))
+    }
 }
 
 impl fmt::Display for Tx {
@@ -240,6 +295,22 @@ impl fmt::Display for Tx {
 mod tests {
     use super::*;
     use hex_literal::hex;
+
+    #[test]
+    fn sighash_value() {
+        assert_eq!(
+            SigHash::All.to_little_endian(),
+            vec![0x01, 0x00, 0x00, 0x00]
+        );
+        assert_eq!(
+            SigHash::None.to_little_endian(),
+            vec![0x02, 0x00, 0x00, 0x00]
+        );
+        assert_eq!(
+            SigHash::Single.to_little_endian(),
+            vec![0x03, 0x00, 0x00, 0x00]
+        );
+    }
 
     #[test]
     fn tx_parse() {
@@ -300,9 +371,9 @@ mod tests {
         cache: HashMap<String, &'static str>,
     }
 
-    impl TxFetcher for MockFetcher {
-        fn new(_: Network) -> MockFetcher {
-            MockFetcher{
+    impl MockFetcher {
+        fn new() -> Self {
+            Self{
                 cache: HashMap::from([
                     ("d1c789a9c60383bf715f3f6ad9d14b91fe55f3deb369fe5d9280cb1a01793f81".to_string(), "0100000002137c53f0fb48f83666fcfd2fe9f12d13e94ee109c5aeabbfa32bb9e02538f4cb000000006a47304402207e6009ad86367fc4b166bc80bf10cf1e78832a01e9bb491c6d126ee8aa436cb502200e29e6dd7708ed419cd5ba798981c960f0cc811b24e894bff072fea8074a7c4c012103bc9e7397f739c70f424aa7dcce9d2e521eb228b0ccba619cd6a0b9691da796a1ffffffff517472e77bc29ae59a914f55211f05024556812a2dd7d8df293265acd8330159010000006b483045022100f4bfdb0b3185c778cf28acbaf115376352f091ad9e27225e6f3f350b847579c702200d69177773cd2bb993a816a5ae08e77a6270cf46b33f8f79d45b0cd1244d9c4c0121031c0b0b95b522805ea9d0225b1946ecaeb1727c0b36c7e34165769fd8ed860bf5ffffffff027a958802000000001976a914a802fc56c704ce87c42d7c92eb75e7896bdc41ae88aca5515e00000000001976a914e82bd75c9c662c3f5700b33fec8a676b6e9391d588ac00000000"),
                     ("9e067aedc661fca148e13953df75f8ca6eada9ce3b3d8d68631769ac60999156".to_string(), "0100000001c228021e1fee6f158cc506edea6bad7ffa421dd14fb7fd7e01c50cc9693e8dbe02000000fdfe0000483045022100c679944ff8f20373685e1122b581f64752c1d22c67f6f3ae26333aa9c3f43d730220793233401f87f640f9c39207349ffef42d0e27046755263c0a69c436ab07febc01483045022100eadc1c6e72f241c3e076a7109b8053db53987f3fcc99e3f88fc4e52dbfd5f3a202201f02cbff194c41e6f8da762e024a7ab85c1b1616b74720f13283043e9e99dab8014c69522102b0c7be446b92624112f3c7d4ffc214921c74c1cb891bf945c49fbe5981ee026b21039021c9391e328e0cb3b61ba05dcc5e122ab234e55d1502e59b10d8f588aea4632102f3bd8f64363066f35968bd82ed9c6e8afecbd6136311bb51e91204f614144e9b53aeffffffff05a08601000000000017a914081fbb6ec9d83104367eb1a6a59e2a92417d79298700350c00000000001976a914677345c7376dfda2c52ad9b6a153b643b6409a3788acc7f341160000000017a914234c15756b9599314c9299340eaabab7f1810d8287c02709000000000017a91469be3ca6195efcab5194e1530164ec47637d44308740420f00000000001976a91487fadba66b9e48c0c8082f33107fdb01970eb80388ac00000000"),
@@ -316,7 +387,9 @@ mod tests {
                 ]),
             }
         }
+    }
 
+    impl TxFetcher for MockFetcher {
         fn fetch_tx(&mut self, id: &TxId) -> std::result::Result<Vec<u8>, NetworkError> {
             let id = format!("{}", id);
             let result = match self.cache.get(&id) {
@@ -334,14 +407,11 @@ mod tests {
     fn tx_fee() {
         let bytes = hex!("0100000001813f79011acb80925dfe69b3def355fe914bd1d96a3f5f71bf8303c6a989c7d1000000006b483045022100ed81ff192e75a3fd2304004dcadb746fa5e24c5031ccfcf21320b0277457c98f02207a986d955c6e0cb35d446a89d3f56100f4d7f67801c31967743a9c8e10615bed01210349fc4e631e3624a545de3f89f5d8684c7b8138bd94bdd531d2e213bf016b278afeffffff02a135ef01000000001976a914bc3b654dca7e56b04dca18f2566cdaf02e8d9ada88ac99c39800000000001976a9141c4bc762dd5423e332166702cb75f40df79fea1288ac19430600");
         let tx = Tx::parse(&bytes).unwrap();
-        assert_eq!(tx.fee(&mut MockFetcher::new(Network::Main)).unwrap(), 40000);
+        assert_eq!(tx.fee(&mut MockFetcher::new()).unwrap(), 40000);
 
         let bytes = hex!("010000000456919960ac691763688d3d3bcea9ad6ecaf875df5339e148a1fc61c6ed7a069e010000006a47304402204585bcdef85e6b1c6af5c2669d4830ff86e42dd205c0e089bc2a821657e951c002201024a10366077f87d6bce1f7100ad8cfa8a064b39d4e8fe4ea13a7b71aa8180f012102f0da57e85eec2934a82a585ea337ce2f4998b50ae699dd79f5880e253dafafb7feffffffeb8f51f4038dc17e6313cf831d4f02281c2a468bde0fafd37f1bf882729e7fd3000000006a47304402207899531a52d59a6de200179928ca900254a36b8dff8bb75f5f5d71b1cdc26125022008b422690b8461cb52c3cc30330b23d574351872b7c361e9aae3649071c1a7160121035d5c93d9ac96881f19ba1f686f15f009ded7c62efe85a872e6a19b43c15a2937feffffff567bf40595119d1bb8a3037c356efd56170b64cbcc160fb028fa10704b45d775000000006a47304402204c7c7818424c7f7911da6cddc59655a70af1cb5eaf17c69dadbfc74ffa0b662f02207599e08bc8023693ad4e9527dc42c34210f7a7d1d1ddfc8492b654a11e7620a0012102158b46fbdff65d0172b7989aec8850aa0dae49abfb84c81ae6e5b251a58ace5cfeffffffd63a5e6c16e620f86f375925b21cabaf736c779f88fd04dcad51d26690f7f345010000006a47304402200633ea0d3314bea0d95b3cd8dadb2ef79ea8331ffe1e61f762c0f6daea0fabde022029f23b3e9c30f080446150b23852028751635dcee2be669c2a1686a4b5edf304012103ffd6f4a67e94aba353a00882e563ff2722eb4cff0ad6006e86ee20dfe7520d55feffffff0251430f00000000001976a914ab0c0b2e98b1ab6dbf67d4750b0a56244948a87988ac005a6202000000001976a9143c82d7df364eb6c75be8c80df2b3eda8db57397088ac46430600");
         let tx = Tx::parse(&bytes).unwrap();
-        assert_eq!(
-            tx.fee(&mut MockFetcher::new(Network::Main)).unwrap(),
-            140500
-        );
+        assert_eq!(tx.fee(&mut MockFetcher::new()).unwrap(), 140500);
     }
 
     #[test]
@@ -357,5 +427,41 @@ mod tests {
         let bytes = hex!("01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000");
         let tx = Tx::parse(&bytes).unwrap();
         assert_eq!(tx.serialize(), bytes);
+    }
+
+    #[test]
+    fn sig_hash() {
+        let bytes = hex!(
+            // version
+            "01000000"
+            // input 0
+            "01 813f79011acb80925dfe69b3def355fe914bd1d96a3f5f71bf8303c6a989c7d1 00000000"
+            // input 0 script
+            "6b483045022100ed81ff192e75a3fd2304004dcadb746fa5e24c5031ccfcf21320b0277457c98f02207a986d955c6e0cb35d446a89d3f56100f4d7f67801c31967743a9c8e10615bed01210349fc4e631e3624a545de3f89f5d8684c7b8138bd94bdd531d2e213bf016b278a"
+            // input 0 sequence
+            "feffffff"
+            // rest of tx
+            "02a135ef01000000001976a914bc3b654dca7e56b04dca18f2566cdaf02e8d9ada88ac99c39800000000001976a9141c4bc762dd5423e332166702cb75f40df79fea1288ac19430600");
+
+        let modified_tx = hex!(
+            // version
+            "01000000"
+            // input 0
+            "01 813f79011acb80925dfe69b3def355fe914bd1d96a3f5f71bf8303c6a989c7d1 00000000"
+            // imported script from referenced output
+            "1976a914a802fc56c704ce87c42d7c92eb75e7896bdc41ae88ac"
+            // sequence
+            "feffffff"
+            // rest of tx
+            "02a135ef01000000001976a914bc3b654dca7e56b04dca18f2566cdaf02e8d9ada88ac99c39800000000001976a9141c4bc762dd5423e332166702cb75f40df79fea1288ac19430600"
+            // sighash flag
+            "01000000");
+
+        let tx = Tx::parse(&bytes).unwrap();
+        assert_eq!(
+            tx.sig_hash(&mut MockFetcher::new(), 0, SigHash::All)
+                .unwrap(),
+            Hash::hash256(modified_tx)
+        );
     }
 }
