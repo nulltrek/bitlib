@@ -1,3 +1,4 @@
+use crate::hashing::to_hex_str;
 use crate::serialization::{slice_to_array, varint, Result, SerializationError};
 use core::fmt;
 use lazy_static::lazy_static;
@@ -8,6 +9,9 @@ lazy_static! {
     static ref OPCODES: HashMap<u8, &'static str> = HashMap::from([
         // Constants
         (0x00, "OP_FALSE"),
+        (0x4c, "OP_PUSHDATA1"),
+        (0x4d, "OP_PUSHDATA2"),
+        (0x4e, "OP_PUSHDATA4"),
         (0x4f, "OP_1NEGATE"),
         (0x51, "OP_TRUE"),
         (0x52, "OP_2"),
@@ -128,9 +132,9 @@ enum Element {
 impl Element {
     fn push_op_bytes(opcode: u8) -> Option<u64> {
         match opcode {
-            76 => Some(1),
-            77 => Some(2),
-            78 => Some(4),
+            0x4c => Some(1),
+            0x4d => Some(2),
+            0x4e => Some(4),
             _ => None,
         }
     }
@@ -161,14 +165,13 @@ impl fmt::Display for Element {
 }
 
 impl fmt::Debug for Element {
-    // Required method
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         <Self as fmt::Display>::fmt(self, f)
     }
 }
 
 pub struct Script {
-    data: Vec<Element>,
+    code: Vec<Element>,
 }
 
 impl Script {
@@ -178,7 +181,7 @@ impl Script {
         let end = start + length as usize;
         Ok((
             Script {
-                data: Script::parse_code(&data[start..end])?,
+                code: Script::parse_code(&data[start..end])?,
             },
             end,
         ))
@@ -186,7 +189,7 @@ impl Script {
 
     pub fn serialize(&self) -> Vec<u8> {
         let mut code: Vec<u8> = vec![];
-        for element in &self.data {
+        for element in &self.code {
             match element {
                 Element::Op(opcode) => code.push(*opcode),
                 Element::Data(opcode, data) => {
@@ -259,11 +262,27 @@ impl Script {
             None => Err(SerializationError::NotEnoughData),
         }
     }
+
+    fn to_string(&self) -> String {
+        let mut code: Vec<String> = vec![];
+        for element in &self.code {
+            match element {
+                Element::Op(opcode) => code.push((*OPCODES.get(&opcode).unwrap()).to_string()),
+                Element::Data(opcode, data) => {
+                    if *opcode != 0 {
+                        code.push((*OPCODES.get(&opcode).unwrap()).to_string())
+                    }
+                    code.push(to_hex_str(&data));
+                }
+            }
+        }
+        code.join(" ")
+    }
 }
 
 impl fmt::Display for Script {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "<script, len: {}>", self.data.len())
+        write!(f, "{}", self.to_string())
     }
 }
 
@@ -279,5 +298,26 @@ mod tests {
 
         let code = hex!("1976a914bc3b654dca7e56b04dca18f2566cdaf02e8d9ada88ac");
         assert_eq!(Script::parse(&code).unwrap().0.serialize(), code);
+    }
+
+    #[test]
+    fn script_printing() {
+        let code = hex!("04 55 93 59 87");
+        assert_eq!(
+            Script::parse(&code).unwrap().0.to_string(),
+            "OP_5 OP_ADD OP_9 OP_EQUAL"
+        );
+
+        let code = hex!("1976a914bc3b654dca7e56b04dca18f2566cdaf02e8d9ada88ac");
+        assert_eq!(
+            Script::parse(&code).unwrap().0.to_string(),
+            "OP_DUP OP_HASH160 bc3b654dca7e56b04dca18f2566cdaf02e8d9ada OP_EQUALVERIFY OP_CHECKSIG"
+        );
+
+        let code = hex!("1976a9141c4bc762dd5423e332166702cb75f40df79fea1288ac");
+        assert_eq!(
+            Script::parse(&code).unwrap().0.to_string(),
+            "OP_DUP OP_HASH160 1c4bc762dd5423e332166702cb75f40df79fea12 OP_EQUALVERIFY OP_CHECKSIG"
+        );
     }
 }
