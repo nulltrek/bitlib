@@ -34,11 +34,11 @@ lazy_static! {
         (0x60, ("OP_16", op::push_16 as OpFn)),
         // Flow control
         (0x61, ("OP_NOP", op::nop as OpFn)),
-        (0x63, ("OP_IF", op::nop as OpFn)),
-        (0x64, ("OP_NOTIF", op::nop as OpFn)),
-        (0x65, ("OP_VERIF", op::nop as OpFn)),
-        (0x67, ("OP_ELSE", op::nop as OpFn)),
-        (0x68, ("OP_ENDIF", op::nop as OpFn)),
+        (0x63, ("OP_IF", op::unimplemented as OpFn)),
+        (0x64, ("OP_NOTIF", op::unimplemented as OpFn)),
+        (0x65, ("OP_VERIF", op::unimplemented as OpFn)),
+        (0x67, ("OP_ELSE", op::unimplemented as OpFn)),
+        (0x68, ("OP_ENDIF", op::unimplemented as OpFn)),
         (0x69, ("OP_VERIFY", op::verify as OpFn)),
         (0x6a, ("OP_RETURN", op::ret as OpFn)),
         // Stack
@@ -103,12 +103,12 @@ lazy_static! {
         (0xab, ("OP_CODESEPARATOR", op::nop as OpFn)),
         (0xac, ("OP_CHECKSIG", op::check_sig as OpFn)),
         (0xad, ("OP_CHECKSIGVERIFY", op::check_sig_verify as OpFn)),
-        (0xae, ("OP_CHECKMULTISIG", op::nop as OpFn)),
-        (0xaf, ("OP_CHECKMULTISIGVERIFY", op::nop as OpFn)),
-        (0xba, ("OP_CHECKSIGADD", op::nop as OpFn)),
+        (0xae, ("OP_CHECKMULTISIG", op::unimplemented as OpFn)),
+        (0xaf, ("OP_CHECKMULTISIGVERIFY", op::unimplemented as OpFn)),
+        (0xba, ("OP_CHECKSIGADD", op::unimplemented as OpFn)),
         // Locktime
-        (0xb1, ("OP_CHECKLOCKTIMEVERIFY", op::nop as OpFn)),
-        (0xb2, ("OP_CHECKSEQUENCEVERIFY", op::nop as OpFn)),
+        (0xb1, ("OP_CHECKLOCKTIMEVERIFY", op::unimplemented as OpFn)),
+        (0xb2, ("OP_CHECKSEQUENCEVERIFY", op::unimplemented as OpFn)),
         // Reserved words
         (0x50, ("OP_RESERVED", op::nop as OpFn)),
         (0x62, ("OP_VER", op::nop as OpFn)),
@@ -417,6 +417,11 @@ mod op {
         } else {
             result
         }
+    }
+
+    pub fn unimplemented(_: &mut Stack) -> bool {
+        log::info!("Not implemented");
+        return false;
     }
 
     pub fn nop(_: &mut Stack) -> bool {
