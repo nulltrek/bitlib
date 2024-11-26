@@ -1,12 +1,19 @@
-.PHONY: test-print
-test-print:
-	cargo fmt
-	cargo test -- --nocapture
-
 .PHONY: test
 test:
 	cargo fmt
-	cargo test
+	cargo test $(name)
+
+level?=info
+
+.PHONY: test-log
+test-log:
+	cargo fmt
+	RUST_LOG=$(level) cargo test $(name)
+
+.PHONY: test-backtrace
+test-backtrace:
+	cargo fmt
+	RUST_BACKTRACE=1 cargo test
 
 .PHONY: doc
 doc:

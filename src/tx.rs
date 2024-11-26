@@ -1,6 +1,6 @@
 use crate::hashing::{hash256, to_hex_str, Hash};
 use crate::network::{NetworkError, TxFetcher};
-use crate::script::Script;
+use crate::script::{self, Script};
 use crate::serialization::{slice_to_array, varint, SerializationError};
 use crate::u256::U256;
 use core::fmt;
@@ -59,6 +59,7 @@ impl TxInput {
         let prev_tx = Hash::from(U256::from_little_endian(&data[0..32]));
         let prev_tx_index = u32::from_le_bytes(slice_to_array(&data[32..36]));
         let (script_sig, script_sig_len) = Script::parse(&data[36..])?;
+        log::debug!("Script: {}", script_sig);
         let seq_offset = 36 + script_sig_len;
         let end_offset = seq_offset + 4;
         let sequence = u32::from_le_bytes(slice_to_array(&data[seq_offset..end_offset]));
@@ -125,6 +126,7 @@ impl TxOutput {
         let amount = u64::from_le_bytes(slice_to_array(&data[0..8]));
         let (script_pubkey, script_pubkey_length) = Script::parse(&data[8..])?;
         let end_offset = 8 + script_pubkey_length;
+        log::debug!("Script: {}", script_pubkey);
         Ok((
             TxOutput {
                 amount,
@@ -170,12 +172,14 @@ impl Tx {
     }
 
     pub fn parse(data: &[u8]) -> Result<Tx> {
+        log::info!("Parsing transaction...");
         let version = u32::from_le_bytes(slice_to_array(&data[0..4]));
 
         let mut offset = if data[4] == 0 { 6 } else { 4 };
 
         let (input_count, varint_length) = varint::parse(&data[offset..])?;
         offset += varint_length;
+        log::debug!("Inputs: {}", input_count);
         let mut inputs = vec![];
         for _ in 0..input_count {
             let (input, input_length) = TxInput::parse(&data[offset..])?;
@@ -185,6 +189,7 @@ impl Tx {
 
         let (output_count, varint_length) = varint::parse(&data[offset..])?;
         offset += varint_length;
+        log::debug!("Outputs: {}", output_count);
         let mut outputs = vec![];
         for _ in 0..output_count {
             let (output, output_length) = TxOutput::parse(&data[offset..])?;
@@ -194,12 +199,14 @@ impl Tx {
 
         let locktime = u32::from_le_bytes(slice_to_array(&data[offset..offset + 4]));
 
-        Ok(Tx {
+        let tx = Tx {
             version,
             inputs,
             outputs,
             locktime,
-        })
+        };
+        log::info!("...done. Transaction id: {}", tx.id());
+        Ok(tx)
     }
 
     pub fn serialize(&self) -> Vec<u8> {
@@ -257,13 +264,31 @@ impl Tx {
 
             if i == input_idx {
                 input.script_sig = input.get_script_pubkey(fetcher)?;
-                println!("{:?}", to_hex_str(input.script_sig.serialize()));
             } else {
                 input.script_sig = Script::default();
             }
         }
         let bytes = [mod_tx.serialize(), flag.to_little_endian()].concat();
         Ok(Hash::hash256(&bytes))
+    }
+
+    pub fn verify_input<F: TxFetcher>(&self, fetcher: &mut F, input_idx: usize) -> bool {
+        if input_idx >= self.inputs.len() {
+            return false;
+        }
+
+        let input = &self.inputs[input_idx];
+        let script_sig = &input.script_sig;
+        let script_pubkey = match input.get_script_pubkey(fetcher) {
+            Err(_) => return false,
+            Ok(script) => script,
+        };
+        let sig_hash = match self.sig_hash(fetcher, input_idx, SigHash::All) {
+            Err(_) => return false,
+            Ok(hash) => hash,
+        };
+
+        script::evaluate(&sig_hash, &script_pubkey, &script_sig)
     }
 }
 
@@ -461,5 +486,17 @@ mod tests {
                 .unwrap(),
             Hash::hash256(modified_tx)
         );
+    }
+
+    fn init_logging() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
+
+    #[test]
+    fn tx_verification() {
+        init_logging();
+        let bytes = hex!("0100000001813f79011acb80925dfe69b3def355fe914bd1d96a3f5f71bf8303c6a989c7d1000000006b483045022100ed81ff192e75a3fd2304004dcadb746fa5e24c5031ccfcf21320b0277457c98f02207a986d955c6e0cb35d446a89d3f56100f4d7f67801c31967743a9c8e10615bed01210349fc4e631e3624a545de3f89f5d8684c7b8138bd94bdd531d2e213bf016b278afeffffff02a135ef01000000001976a914bc3b654dca7e56b04dca18f2566cdaf02e8d9ada88ac99c39800000000001976a9141c4bc762dd5423e332166702cb75f40df79fea1288ac19430600");
+        let tx = Tx::parse(&bytes).unwrap();
+        assert!(tx.verify_input(&mut MockFetcher::new(), 0))
     }
 }

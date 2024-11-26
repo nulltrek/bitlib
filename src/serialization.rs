@@ -1,6 +1,7 @@
 use crate::curves::Curve;
 use crate::curves::Point;
 use crate::definitions::{Compression, Network};
+use crate::ecdsa::PublicKey;
 use crate::ecdsa::{PrivateKey, Signature};
 use crate::fields::FiniteFieldU256;
 use crate::hashing::{base58, base58_with_checksum, hash160};
@@ -59,10 +60,11 @@ impl Point<U256> {
         }
     }
 
-    pub fn parse(curve: &Curve<U256, FiniteFieldU256>, data: &[u8]) -> Option<Self> {
+    pub fn parse(curve: &Curve<U256, FiniteFieldU256>, data: &[u8]) -> Option<PublicKey> {
         if data.is_empty() {
             return None;
         }
+
         match data[0] {
             0x04 => Self::parse_sec(data),
             0x02 | 0x03 => Self::parse_csec(curve, data),
@@ -70,17 +72,17 @@ impl Point<U256> {
         }
     }
 
-    fn parse_sec(data: &[u8]) -> Option<Self> {
+    fn parse_sec(data: &[u8]) -> Option<PublicKey> {
         if data.len() != 65 {
             return None;
         }
-        Some(Self::coords(
+        Some(PublicKey::new(Self::coords(
             U256::from_big_endian(&data[1..33]),
             U256::from_big_endian(&data[33..65]),
-        ))
+        )))
     }
 
-    fn parse_csec(curve: &Curve<U256, FiniteFieldU256>, data: &[u8]) -> Option<Self> {
+    fn parse_csec(curve: &Curve<U256, FiniteFieldU256>, data: &[u8]) -> Option<PublicKey> {
         if data.len() != 33 {
             return None;
         }
@@ -90,7 +92,10 @@ impl Point<U256> {
             0x03 => false,
             _ => panic!("Unrecognized compressed SEC marker"),
         };
-        Some(Self::coords(x, curve.compute_y(&x, y_is_even)))
+        Some(PublicKey::new(Self::coords(
+            x,
+            curve.compute_y(&x, y_is_even),
+        )))
     }
 
     pub fn to_address(&self, compression: Compression, network: Network) -> String {
@@ -109,7 +114,7 @@ impl Point<U256> {
 }
 
 impl Signature {
-    fn to_der(&self) -> Vec<u8> {
+    pub fn to_der(&self) -> Vec<u8> {
         let comp_r = Self::compress(&self.r);
         let comp_s = Self::compress(&self.s);
 
@@ -125,7 +130,7 @@ impl Signature {
         enc_sig
     }
 
-    fn compress(num: &U256) -> Vec<u8> {
+    pub fn compress(num: &U256) -> Vec<u8> {
         let mut cur_i = 0;
         let bytes = num.to_big_endian().clone();
         for (i, byte) in bytes.iter().enumerate() {
@@ -140,7 +145,7 @@ impl Signature {
         }
     }
 
-    fn parse(data: &[u8]) -> Result<Self> {
+    pub fn parse(data: &[u8]) -> Result<Self> {
         if data.len() < 2 {
             return Err(SerializationError::ParsingError("Data too short"));
         }
@@ -390,7 +395,7 @@ mod tests {
 
         assert!(point.is_some());
         assert_eq!(
-            point.unwrap(),
+            *point.unwrap(),
             Point::coords(
                 U256::from_hex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
                 U256::from_hex("0101010101010101010101010101010101010101010101010101010101010101"),
@@ -409,7 +414,7 @@ mod tests {
         let secp = Secp256k1::new();
         assert_eq!(
             point.unwrap(),
-            *secp.get_pubkey(&PrivateKey::new(U256::from_dec("5000"))),
+            secp.get_pubkey(&PrivateKey::new(U256::from_dec("5000"))),
         );
 
         let point = Point::<U256>::parse_sec(&[
@@ -424,7 +429,7 @@ mod tests {
         let secp = Secp256k1::new();
         assert_eq!(
             point.unwrap(),
-            *secp.get_pubkey(&PrivateKey::new(U256::from_dec("33466154331649568"))),
+            secp.get_pubkey(&PrivateKey::new(U256::from_dec("33466154331649568"))),
         );
 
         let point = Point::<U256>::parse_sec(&[
@@ -439,7 +444,7 @@ mod tests {
         let secp = Secp256k1::new();
         assert_eq!(
             point.unwrap(),
-            *secp.get_pubkey(&PrivateKey::new(U256::from_hex("deadbeef12345"))),
+            secp.get_pubkey(&PrivateKey::new(U256::from_hex("deadbeef12345"))),
         );
     }
 
@@ -458,7 +463,7 @@ mod tests {
         assert!(point.is_some());
         assert_eq!(
             point.unwrap(),
-            *secp.get_pubkey(&PrivateKey::new(U256::from_dec("5000"))),
+            secp.get_pubkey(&PrivateKey::new(U256::from_dec("5000"))),
         );
 
         let point = Point::<U256>::parse_csec(
@@ -473,7 +478,7 @@ mod tests {
         assert!(point.is_some());
         assert_eq!(
             point.unwrap(),
-            *secp.get_pubkey(&PrivateKey::new(U256::from_dec("33466154331649568"))),
+            secp.get_pubkey(&PrivateKey::new(U256::from_dec("33466154331649568"))),
         );
 
         let point = Point::<U256>::parse_csec(
@@ -488,7 +493,7 @@ mod tests {
         assert!(point.is_some());
         assert_eq!(
             point.unwrap(),
-            *secp.get_pubkey(&PrivateKey::new(U256::from_hex("deadbeef12345"))),
+            secp.get_pubkey(&PrivateKey::new(U256::from_hex("deadbeef12345"))),
         );
     }
 
@@ -498,33 +503,33 @@ mod tests {
         let pubkey = secp.get_pubkey(&PrivateKey::new(U256::from_dec("5000")));
         assert_eq!(
             Point::<U256>::parse(&secp.curve, &pubkey.to_csec()),
-            Some(*pubkey),
+            Some(pubkey),
         );
         assert_eq!(
             Point::<U256>::parse(&secp.curve, &pubkey.to_sec()),
-            Some(*pubkey),
+            Some(pubkey),
         );
 
         let secp = Secp256k1::new();
         let pubkey = secp.get_pubkey(&PrivateKey::new(U256::from_dec("33466154331649568")));
         assert_eq!(
             Point::<U256>::parse(&secp.curve, &pubkey.to_csec()),
-            Some(*pubkey),
+            Some(pubkey),
         );
         assert_eq!(
             Point::<U256>::parse(&secp.curve, &pubkey.to_sec()),
-            Some(*pubkey),
+            Some(pubkey),
         );
 
         let secp = Secp256k1::new();
         let pubkey = secp.get_pubkey(&PrivateKey::new(U256::from_hex("deadbeef12345")));
         assert_eq!(
             Point::<U256>::parse(&secp.curve, &pubkey.to_csec()),
-            Some(*pubkey),
+            Some(pubkey),
         );
         assert_eq!(
             Point::<U256>::parse(&secp.curve, &pubkey.to_sec()),
-            Some(*pubkey),
+            Some(pubkey),
         );
     }
 

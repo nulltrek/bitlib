@@ -27,8 +27,14 @@ impl Deref for PrivateKey {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct PublicKey(Point<U256>);
+
+impl PublicKey {
+    pub fn new(point: Point<U256>) -> PublicKey {
+        PublicKey(point)
+    }
+}
 
 impl Deref for PublicKey {
     type Target = Point<U256>;

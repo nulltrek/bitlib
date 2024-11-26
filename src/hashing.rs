@@ -22,9 +22,19 @@ pub fn from_hex_str(s: &str) -> Result<Vec<u8>, ParseIntError> {
         .collect()
 }
 
+pub fn sha256(data: impl AsRef<[u8]>) -> Vec<u8> {
+    Sha256::digest(data).to_vec()
+}
+
 pub fn hash256(data: impl AsRef<[u8]>) -> Vec<u8> {
     let digest = Sha256::digest(Sha256::digest(data));
     digest.to_vec()
+}
+
+pub fn ripemd160(data: impl AsRef<[u8]>) -> Vec<u8> {
+    let mut hasher = Ripemd160::new();
+    hasher.update(data);
+    hasher.finalize().to_vec()
 }
 
 pub fn hash160(data: impl AsRef<[u8]>) -> Vec<u8> {
@@ -72,6 +82,12 @@ pub fn base58_with_checksum(data: impl AsRef<[u8]>) -> String {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hash(U256);
+
+impl Default for Hash {
+    fn default() -> Self {
+        Hash(U256::from_big_endian(&[0x00]))
+    }
+}
 
 impl Hash {
     pub fn hash256(data: impl AsRef<[u8]>) -> Hash {
