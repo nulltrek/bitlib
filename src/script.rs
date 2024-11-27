@@ -11,12 +11,12 @@ lazy_static! {
     // let ops = Vec<(u8, (&'static str, fn(&mut Stack) -> bool))> ;
     static ref OPCODES: HashMap<u8, (&'static str, OpFn)> = HashMap::from([
         // Constants
-        (0x00_u8, ("OP_FALSE", op::push_0 as OpFn)),
+        (0x00_u8, ("OP_0", op::push_0 as OpFn)),
         (0x4c, ("OP_PUSHDATA1", op::nop as OpFn)),
         (0x4d, ("OP_PUSHDATA2", op::nop as OpFn)),
         (0x4e, ("OP_PUSHDATA4", op::nop as OpFn)),
         (0x4f, ("OP_1NEGATE", op::push_1_negate as OpFn)),
-        (0x51, ("OP_TRUE", op::push_1 as OpFn)),
+        (0x51, ("OP_1", op::push_1 as OpFn)),
         (0x52, ("OP_2", op::push_2 as OpFn)),
         (0x53, ("OP_3", op::push_3 as OpFn)),
         (0x54, ("OP_4", op::push_4 as OpFn)),
@@ -190,7 +190,7 @@ impl Script {
         let (length, offset) = varint::parse(data)?;
         let start = offset as usize;
         let end = start + length as usize;
-        log::info!("Parsing script (size: {} bytes)...", length);
+        log::debug!("Parsing script (size: {} bytes)...", length);
         Ok((
             Script {
                 code: Script::parse_code(&data[start..end])?,

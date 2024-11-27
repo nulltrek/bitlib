@@ -10,5 +10,5 @@ fn main() {
     let pubkey = secp.get_pubkey(&PrivateKey::new(U256::from_big_endian(&secret_hash)));
     // mvjLH9YikB9kuWbw8C6uE1SSY54QqvNzQX
     // n3ueoiZVnRaGqxDCdZtQcKYeMa4oznzmiY
-    println!("{}", pubkey.to_address(Compression::No, Network::Test))
+    println!("{}", pubkey.to_address(Compression::No, Network::Test));
 }

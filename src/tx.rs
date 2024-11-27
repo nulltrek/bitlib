@@ -10,6 +10,7 @@ pub enum TxError {
     NetworkError(NetworkError),
     SerializationError(SerializationError),
     InputNotFound(usize),
+    Overspending(u64, u64),
     GenericError,
 }
 
@@ -172,7 +173,7 @@ impl Tx {
     }
 
     pub fn parse(data: &[u8]) -> Result<Tx> {
-        log::info!("Parsing transaction...");
+        log::debug!("Parsing transaction...");
         let version = u32::from_le_bytes(slice_to_array(&data[0..4]));
 
         let mut offset = if data[4] == 0 { 6 } else { 4 };
@@ -205,7 +206,7 @@ impl Tx {
             outputs,
             locktime,
         };
-        log::info!("...done. Transaction id: {}", tx.id());
+        log::debug!("...done. Transaction id: {}", tx.id());
         Ok(tx)
     }
 
@@ -244,7 +245,12 @@ impl Tx {
             input_value += input.value(fetcher)?;
         }
 
-        Ok(input_value - self.outputs.iter().map(|tx_out| tx_out.amount).sum::<u64>())
+        let output_value = self.outputs.iter().map(|tx_out| tx_out.amount).sum::<u64>();
+        if output_value > input_value {
+            Err(TxError::Overspending(input_value, output_value))
+        } else {
+            Ok(input_value - output_value)
+        }
     }
 
     pub fn sig_hash<F: TxFetcher>(
@@ -274,21 +280,45 @@ impl Tx {
 
     pub fn verify_input<F: TxFetcher>(&self, fetcher: &mut F, input_idx: usize) -> bool {
         if input_idx >= self.inputs.len() {
+            log::info!("Input {} does not exist", input_idx);
             return false;
         }
 
+        log::info!("Verifying input {}", input_idx);
         let input = &self.inputs[input_idx];
         let script_sig = &input.script_sig;
+        log::info!("Script sig: {}", script_sig);
         let script_pubkey = match input.get_script_pubkey(fetcher) {
             Err(_) => return false,
             Ok(script) => script,
         };
+        log::info!("Script pubkey: {}", script_pubkey);
         let sig_hash = match self.sig_hash(fetcher, input_idx, SigHash::All) {
             Err(_) => return false,
             Ok(hash) => hash,
         };
 
-        script::evaluate(&sig_hash, &script_pubkey, &script_sig)
+        let result = script::evaluate(&sig_hash, &script_pubkey, &script_sig);
+        log::info!("Script evaluation successful: {}", result);
+        return result;
+    }
+
+    pub fn verify<F: TxFetcher>(&self, fetcher: &mut F) -> bool {
+        log::info!("Verifying tx: {}", self.id());
+        let fee = match self.fee(fetcher) {
+            Err(err) => {
+                log::info!("Transaction invalid: {:?}", err);
+                return false;
+            }
+            Ok(fee) => fee,
+        };
+        log::info!("Fee: {} satoshis", fee);
+        for i in 0..self.inputs.len() {
+            if !self.verify_input(fetcher, i) {
+                return false;
+            }
+        }
+        return true;
     }
 }
 
@@ -407,6 +437,12 @@ mod tests {
                     ("d37f9e7282f81b7fd3af0fde8b462a1c28024f1d83cf13637ec18d03f4518feb".to_string(), "0100000001b74780c0b9903472f84f8697a7449faebbfb1af659ecb8148ce8104347f3f72d010000006b483045022100bb8792c98141bcf4dab4fd4030743b4eff9edde59cec62380c60ffb90121ab7802204b439e3572b51382540c3b652b01327ee8b14cededc992fbc69b1e077a2c3f9f0121027c975c8bdc9717de310998494a2ae63f01b7a390bd34ef5b4c346fa717cba012ffffffff01a627c901000000001976a914af24b3f3e987c23528b366122a7ed2af199b36bc88ac00000000"),
                     ("75d7454b7010fa28b00f16cccb640b1756fd6e357c03a3b81b9d119505f47b56".to_string(), "010000000367d54ded4c43569acbc213073fc63bfc49bf420391f0ab304758b16600a8ea88010000006a4730440220404b3bb28af45437c989328122aa6f4462021a0a2d4f20141ebe84e80edd72e202204184dd9d833d57246eaeed39021e9ab8c0546f3270bd9d2fc138a4bf161ea2310121039550662b907f788cc96708dc017aee0d407b74427f11e656b87f84146337f183feffffff5edf7dbc586b5fddace63a6614f5a731787c104d3c1c9225c4542db067d4296d010000006b483045022100b2335adb91e1ac3bb4e0479b54a9e7d4b765d9b646ca71e2547776c4e7e6bdfb02201fa8aaa4d2557768329befd61d4abda95668f88065df6eac6076e3e123c121eb012103b80229ec7a62793132ff432be0ecf21bca774ade18af7eaf2215febad0c4321ffeffffffdfa74eb50768daeb4beca2ca83d1732128d2439f9df9508efc8f7820718b4ae1000000006a47304402204818b29bed4a8ea4eb383f996389866a732b44d98f6342ecc25007ca472526fb0220496ed1213d63b7686f6936940e8f566f291bab211e6600c0f71e3659787b91fc0121036a30f9e6f645191c6216f84c21ae3b4f0aca0c4be987889276089cf9ef7a89d6feffffff028deb0f00000000001976a914cd0b3a22cd16e182291aa2708c41cb38de5a330788acc0e1e400000000001976a91424505f6d2f0fe7c4a3f4af32f50506034d89095d88ac43430600"),
                     ("45f3f79066d251addc04fd889f776c73afab1cb22559376ff820e6166c5e3ad6".to_string(), "01000000012aa311f7789d362ceb2d802a98a703e0ac44815c021293633b80d08e67232e36010000006a4730440220142d8810ab29cac9199e6b570d47bd5ee402accf9d754cfa7de9b2e84e3997b402207a7d8c77c6a721bc64dba39eabe23e915c979683e621921c243bb35b3f538dfb01210371cb7d04e95471c4ea5c200e8c4729608754c74bee4e289bd66f431482407ec8feffffff02a08601000000000017a914fc7d096f19063ece361e2b309ec4da41fe4d789487f2798e00000000001976a914311b232c3400080eb2636edb8548b47f6835be7688ac31430600"),
+                    ("452c629d67e41baec3ac6f04fe744b4b9617f8f859c63b3002f8684e7a4fee03".to_string(), "0100000001813f79011acb80925dfe69b3def355fe914bd1d96a3f5f71bf8303c6a989c7d1000000006b483045022100ed81ff192e75a3fd2304004dcadb746fa5e24c5031ccfcf21320b0277457c98f02207a986d955c6e0cb35d446a89d3f56100f4d7f67801c31967743a9c8e10615bed01210349fc4e631e3624a545de3f89f5d8684c7b8138bd94bdd531d2e213bf016b278afeffffff02a135ef01000000001976a914bc3b654dca7e56b04dca18f2566cdaf02e8d9ada88ac99c39800000000001976a9141c4bc762dd5423e332166702cb75f40df79fea1288ac19430600"),
+                    ("46df1a9484d0a81d03ce0ee543ab6e1a23ed06175c104a178268fad381216c2b".to_string(), "0100000001868278ed6ddfb6c1ed3ad5f8181eb0c7a385aa0836f01d5e4789e6bd304d87221a000000db00483045022100dc92655fe37036f47756db8102e0d7d5e28b3beb83a8fef4f5dc0559bddfb94e02205a36d4e4e6c7fcd16658c50783e00c341609977aed3ad00937bf4ee942a8993701483045022100da6bee3c93766232079a01639d07fa869598749729ae323eab8eef53577d611b02207bef15429dcadce2121ea07f233115c6f09034c0be68db99980b9a6c5e75402201475221022626e955ea6ea6d98850c994f9107b036b1334f18ca8830bfff1295d21cfdb702103b287eaf122eea69030a0e9feed096bed8045c8b98bec453e1ffac7fbdbd4bb7152aeffffffff04d3b11400000000001976a914904a49878c0adfc3aa05de7afad2cc15f483a56a88ac7f400900000000001976a914418327e3f3dda4cf5b9089325a4b95abdfa0334088ac722c0c00000000001976a914ba35042cfe9fc66fd35ac2224eebdafd1028ad2788acdc4ace020000000017a91474d691da1574e6b3c192ecfb52cc8984ee7b6c568700000000"),
+
+                    // From testnet
+                    ("5418099cc755cb9dd3ebc6cf1a7888ad53a1a3beb5a025bce89eb1bf7f1650a2".to_string(), "010000000148dcc16482f5c835828020498ec1c35f48a578585721b5a77445a4ce93334d18000000006a4730440220636b9f822ea2f85e6375ecd066a49cc74c20ec4f7cf0485bebe6cc68da92d8ce022068ae17620b12d99353287d6224740b585ff89024370a3212b583fb454dce7c160121021f955d36390a38361530fb3724a835f4f504049492224a028fb0ab8c063511a7ffffffff0220960705000000001976a914d23541bd04c58a1265e78be912e63b2557fb439088aca0860100000000001976a91456d95dc3f2414a210efb7188d287bff487df96c688ac00000000"),
+                    ("184d3393cea44574a7b521575878a5485fc3c18e4920808235c8f58264c1dc48".to_string(), "0100000001e047a4dfa9980e1533ef990f25ccd387922b2f9b8ed00df064684ff33b3fe52e000000006a473044022007fefcd11b9b715b45ecfe02eba011d785a9364c08af60297d6aa8a4ccc95c3702201cac5e121d07545275b510264c625d9cdaf9e4b58652aad0226a47c96729dc270121021f955d36390a38361530fb3724a835f4f504049492224a028fb0ab8c063511a7ffffffff02c0441105000000001976a914d23541bd04c58a1265e78be912e63b2557fb439088aca0860100000000001976a91456d95dc3f2414a210efb7188d287bff487df96c688ac00000000"),
                 ]),
             }
         }
@@ -488,15 +524,55 @@ mod tests {
         );
     }
 
-    // fn init_logging() {
-    //     let _ = env_logger::builder().is_test(true).try_init();
-    // }
+    fn init_logging() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
 
     #[test]
-    fn tx_verification() {
-        // init_logging();
-        let bytes = hex!("0100000001813f79011acb80925dfe69b3def355fe914bd1d96a3f5f71bf8303c6a989c7d1000000006b483045022100ed81ff192e75a3fd2304004dcadb746fa5e24c5031ccfcf21320b0277457c98f02207a986d955c6e0cb35d446a89d3f56100f4d7f67801c31967743a9c8e10615bed01210349fc4e631e3624a545de3f89f5d8684c7b8138bd94bdd531d2e213bf016b278afeffffff02a135ef01000000001976a914bc3b654dca7e56b04dca18f2566cdaf02e8d9ada88ac99c39800000000001976a9141c4bc762dd5423e332166702cb75f40df79fea1288ac19430600");
+    fn tx_input_verification() {
+        let fetcher = &mut MockFetcher::new();
+        let bytes = fetcher
+            .fetch_tx(&Hash::from(U256::from_hex(
+                "452c629d67e41baec3ac6f04fe744b4b9617f8f859c63b3002f8684e7a4fee03",
+            )))
+            .unwrap();
         let tx = Tx::parse(&bytes).unwrap();
-        assert!(tx.verify_input(&mut MockFetcher::new(), 0))
+        assert!(tx.verify_input(fetcher, 0));
+    }
+
+    #[test]
+    fn tx_verification_p2pkh() {
+        let fetcher = &mut MockFetcher::new();
+        let bytes = fetcher
+            .fetch_tx(&Hash::from(U256::from_hex(
+                "452c629d67e41baec3ac6f04fe744b4b9617f8f859c63b3002f8684e7a4fee03",
+            )))
+            .unwrap();
+        let tx = Tx::parse(&bytes).unwrap();
+        assert!(tx.verify(fetcher));
+
+        let bytes = fetcher
+            .fetch_tx(&Hash::from(U256::from_hex(
+                "5418099cc755cb9dd3ebc6cf1a7888ad53a1a3beb5a025bce89eb1bf7f1650a2",
+            )))
+            .unwrap();
+        let tx = Tx::parse(&bytes).unwrap();
+        assert!(tx.verify(fetcher))
+    }
+
+    #[test]
+    fn tx_verification_p2sh() {
+        init_logging();
+        use crate::definitions::Network;
+        use crate::network::NetFetcher;
+        let mut fetcher = NetFetcher::new(Network::Main);
+        let bytes = fetcher
+            .fetch_tx(&Hash::from(U256::from_hex(
+                "46df1a9484d0a81d03ce0ee543ab6e1a23ed06175c104a178268fad381216c2b",
+            )))
+            .unwrap();
+        let tx = Tx::parse(&bytes).unwrap();
+        log::info!("{}", tx);
+        assert!(tx.verify(&mut fetcher));
     }
 }

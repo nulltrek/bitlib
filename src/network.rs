@@ -48,7 +48,7 @@ pub struct NetFetcher {
 }
 
 impl NetFetcher {
-    fn new(network: Network) -> Self {
+    pub fn new(network: Network) -> Self {
         Self {
             network,
             cache: HashMap::new(),
