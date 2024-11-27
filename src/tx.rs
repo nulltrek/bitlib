@@ -1,5 +1,5 @@
 use crate::hashing::{hash256, to_hex_str, Hash};
-use crate::network::{NetworkError, TxFetcher};
+use crate::network::NetworkError;
 use crate::script::{self, Script};
 use crate::serialization::{slice_to_array, varint, SerializationError};
 use crate::u256::U256;
@@ -7,10 +7,10 @@ use core::fmt;
 
 #[derive(Debug)]
 pub enum TxError {
-    NetworkError(NetworkError),
     SerializationError(SerializationError),
     InputNotFound(usize),
     Overspending(u64, u64),
+    NetworkError(NetworkError),
     GenericError,
 }
 
@@ -47,7 +47,11 @@ impl SigHash {
     }
 }
 
-#[derive(Clone)]
+pub trait TxFetcher {
+    fn fetch_tx(&mut self, id: &TxId) -> Result<Tx>;
+}
+
+#[derive(PartialEq, Debug, Clone)]
 struct TxInput {
     prev_tx: TxId,
     prev_tx_index: u32,
@@ -92,14 +96,12 @@ impl TxInput {
     }
 
     pub fn value<F: TxFetcher>(&self, fetcher: &mut F) -> Result<u64> {
-        let tx_data = fetcher.fetch_tx(&self.prev_tx)?;
-        let tx = Tx::parse(&tx_data)?;
+        let tx = fetcher.fetch_tx(&self.prev_tx)?;
         Ok(tx.outputs[self.prev_tx_index as usize].amount)
     }
 
     pub fn get_script_pubkey<F: TxFetcher>(&self, fetcher: &mut F) -> Result<Script> {
-        let tx_data = fetcher.fetch_tx(&self.prev_tx)?;
-        let tx = Tx::parse(&tx_data)?;
+        let tx = fetcher.fetch_tx(&self.prev_tx)?;
         Ok(tx.outputs[self.prev_tx_index as usize]
             .script_pubkey
             .clone())
@@ -116,7 +118,7 @@ impl fmt::Display for TxInput {
     }
 }
 
-#[derive(Clone)]
+#[derive(PartialEq, Debug, Clone)]
 struct TxOutput {
     amount: u64,
     script_pubkey: Script,
@@ -155,7 +157,7 @@ impl fmt::Display for TxOutput {
     }
 }
 
-#[derive(Clone)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Tx {
     version: u32,
     inputs: Vec<TxInput>,
@@ -266,7 +268,7 @@ impl Tx {
         let mut mod_tx = self.clone();
         // Clean the inputs except the one we want to sign
         for i in 0..mod_tx.inputs.len() {
-            let mut input = &mut mod_tx.inputs[i];
+            let input = &mut mod_tx.inputs[i];
 
             if i == input_idx {
                 input.script_sig = input.get_script_pubkey(fetcher)?;
@@ -421,7 +423,7 @@ mod tests {
     use std::collections::HashMap;
 
     struct MockFetcher {
-        cache: HashMap<String, &'static str>,
+        cache: HashMap<String, Tx>,
     }
 
     impl MockFetcher {
@@ -443,21 +445,17 @@ mod tests {
                     // From testnet
                     ("5418099cc755cb9dd3ebc6cf1a7888ad53a1a3beb5a025bce89eb1bf7f1650a2".to_string(), "010000000148dcc16482f5c835828020498ec1c35f48a578585721b5a77445a4ce93334d18000000006a4730440220636b9f822ea2f85e6375ecd066a49cc74c20ec4f7cf0485bebe6cc68da92d8ce022068ae17620b12d99353287d6224740b585ff89024370a3212b583fb454dce7c160121021f955d36390a38361530fb3724a835f4f504049492224a028fb0ab8c063511a7ffffffff0220960705000000001976a914d23541bd04c58a1265e78be912e63b2557fb439088aca0860100000000001976a91456d95dc3f2414a210efb7188d287bff487df96c688ac00000000"),
                     ("184d3393cea44574a7b521575878a5485fc3c18e4920808235c8f58264c1dc48".to_string(), "0100000001e047a4dfa9980e1533ef990f25ccd387922b2f9b8ed00df064684ff33b3fe52e000000006a473044022007fefcd11b9b715b45ecfe02eba011d785a9364c08af60297d6aa8a4ccc95c3702201cac5e121d07545275b510264c625d9cdaf9e4b58652aad0226a47c96729dc270121021f955d36390a38361530fb3724a835f4f504049492224a028fb0ab8c063511a7ffffffff02c0441105000000001976a914d23541bd04c58a1265e78be912e63b2557fb439088aca0860100000000001976a91456d95dc3f2414a210efb7188d287bff487df96c688ac00000000"),
-                ]),
+                ].map(|(id, tx_str)| { (id, Tx::parse(&from_hex_str(&tx_str).unwrap()).unwrap()) })),
             }
         }
     }
 
     impl TxFetcher for MockFetcher {
-        fn fetch_tx(&mut self, id: &TxId) -> std::result::Result<Vec<u8>, NetworkError> {
+        fn fetch_tx(&mut self, id: &TxId) -> Result<Tx> {
             let id = format!("{}", id);
-            let result = match self.cache.get(&id) {
-                None => return Err(NetworkError::ParsingError),
-                Some(tx) => tx,
-            };
-            match from_hex_str(&result) {
-                Err(_) => Err(NetworkError::ParsingError),
-                Ok(bytes) => Ok(bytes),
+            match self.cache.get(&id) {
+                None => return Err(TxError::GenericError),
+                Some(tx) => Ok(tx.clone()),
             }
         }
     }
@@ -531,32 +529,29 @@ mod tests {
     #[test]
     fn tx_input_verification() {
         let fetcher = &mut MockFetcher::new();
-        let bytes = fetcher
+        let tx = fetcher
             .fetch_tx(&Hash::from(U256::from_hex(
                 "452c629d67e41baec3ac6f04fe744b4b9617f8f859c63b3002f8684e7a4fee03",
             )))
             .unwrap();
-        let tx = Tx::parse(&bytes).unwrap();
         assert!(tx.verify_input(fetcher, 0));
     }
 
     #[test]
     fn tx_verification_p2pkh() {
         let fetcher = &mut MockFetcher::new();
-        let bytes = fetcher
+        let tx = fetcher
             .fetch_tx(&Hash::from(U256::from_hex(
                 "452c629d67e41baec3ac6f04fe744b4b9617f8f859c63b3002f8684e7a4fee03",
             )))
             .unwrap();
-        let tx = Tx::parse(&bytes).unwrap();
         assert!(tx.verify(fetcher));
 
-        let bytes = fetcher
+        let tx = fetcher
             .fetch_tx(&Hash::from(U256::from_hex(
                 "5418099cc755cb9dd3ebc6cf1a7888ad53a1a3beb5a025bce89eb1bf7f1650a2",
             )))
             .unwrap();
-        let tx = Tx::parse(&bytes).unwrap();
         assert!(tx.verify(fetcher))
     }
 
@@ -566,13 +561,11 @@ mod tests {
         use crate::definitions::Network;
         use crate::network::NetFetcher;
         let mut fetcher = NetFetcher::new(Network::Main);
-        let bytes = fetcher
+        let tx = fetcher
             .fetch_tx(&Hash::from(U256::from_hex(
                 "46df1a9484d0a81d03ce0ee543ab6e1a23ed06175c104a178268fad381216c2b",
             )))
             .unwrap();
-        let tx = Tx::parse(&bytes).unwrap();
-        log::info!("{}", tx);
         assert!(tx.verify(&mut fetcher));
     }
 }

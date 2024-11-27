@@ -127,7 +127,7 @@ lazy_static! {
     ]);
 }
 
-#[derive(Clone)]
+#[derive(PartialEq, Clone)]
 enum Element {
     Op(u8),
     Data(u8, Vec<u8>),
@@ -174,7 +174,7 @@ impl fmt::Debug for Element {
     }
 }
 
-#[derive(Clone)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Script {
     code: Vec<Element>,
 }
