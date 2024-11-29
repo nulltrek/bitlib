@@ -1,3 +1,4 @@
+use crate::ecdsa::{PrivateKey, Secp256k1, Signature};
 use crate::hashing::{hash256, to_hex_str, Hash};
 use crate::network::NetworkError;
 use crate::script::{self, Script};
@@ -30,6 +31,7 @@ pub type Result<T> = std::result::Result<T, TxError>;
 
 pub type TxId = Hash;
 
+#[derive(Copy, Clone)]
 pub enum SigHash {
     All,
     None,
@@ -37,13 +39,20 @@ pub enum SigHash {
 }
 
 impl SigHash {
-    fn to_little_endian(&self) -> Vec<u8> {
-        let value: u32 = match self {
+    fn value(&self) -> u32 {
+        match self {
             Self::All => 1,
             Self::None => 2,
             Self::Single => 3,
-        };
-        value.to_le_bytes().to_vec()
+        }
+    }
+
+    pub fn to_u32_little_endian(&self) -> Vec<u8> {
+        self.value().to_le_bytes().to_vec()
+    }
+
+    pub fn to_u8(&self) -> u8 {
+        self.value() as u8
     }
 }
 
@@ -52,11 +61,11 @@ pub trait TxFetcher {
 }
 
 #[derive(PartialEq, Debug, Clone)]
-struct TxInput {
-    prev_tx: TxId,
-    prev_tx_index: u32,
-    script_sig: Script,
-    sequence: u32,
+pub struct TxInput {
+    pub prev_tx: TxId,
+    pub prev_tx_index: u32,
+    pub script_sig: Script,
+    pub sequence: u32,
 }
 
 impl TxInput {
@@ -119,9 +128,9 @@ impl fmt::Display for TxInput {
 }
 
 #[derive(PartialEq, Debug, Clone)]
-struct TxOutput {
-    amount: u64,
-    script_pubkey: Script,
+pub struct TxOutput {
+    pub amount: u64,
+    pub script_pubkey: Script,
 }
 
 impl TxOutput {
@@ -159,10 +168,10 @@ impl fmt::Display for TxOutput {
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct Tx {
-    version: u32,
-    inputs: Vec<TxInput>,
-    outputs: Vec<TxOutput>,
-    locktime: u32,
+    pub version: u32,
+    pub inputs: Vec<TxInput>,
+    pub outputs: Vec<TxOutput>,
+    pub locktime: u32,
 }
 
 impl Tx {
@@ -276,8 +285,22 @@ impl Tx {
                 input.script_sig = Script::default();
             }
         }
-        let bytes = [mod_tx.serialize(), flag.to_little_endian()].concat();
+        let bytes = [mod_tx.serialize(), flag.to_u32_little_endian()].concat();
         Ok(Hash::hash256(&bytes))
+    }
+
+    pub fn sign_input<F: TxFetcher>(
+        &self,
+        fetcher: &mut F,
+        input_idx: usize,
+        flag: SigHash,
+        privkey: &PrivateKey,
+    ) -> Result<Signature> {
+        let sig_hash = self.sig_hash(fetcher, input_idx, flag)?;
+
+        let secp = Secp256k1::new();
+        let signature = secp.sign(&sig_hash, privkey);
+        Ok(signature)
     }
 
     pub fn verify_input<F: TxFetcher>(&self, fetcher: &mut F, input_idx: usize) -> bool {
@@ -354,15 +377,15 @@ mod tests {
     #[test]
     fn sighash_value() {
         assert_eq!(
-            SigHash::All.to_little_endian(),
+            SigHash::All.to_u32_little_endian(),
             vec![0x01, 0x00, 0x00, 0x00]
         );
         assert_eq!(
-            SigHash::None.to_little_endian(),
+            SigHash::None.to_u32_little_endian(),
             vec![0x02, 0x00, 0x00, 0x00]
         );
         assert_eq!(
-            SigHash::Single.to_little_endian(),
+            SigHash::Single.to_u32_little_endian(),
             vec![0x03, 0x00, 0x00, 0x00]
         );
     }

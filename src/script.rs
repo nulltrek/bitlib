@@ -186,6 +186,12 @@ impl Default for Script {
 }
 
 impl Script {
+    pub fn from_slice(data: &[u8]) -> Result<Script> {
+        Ok(Script {
+            code: Script::parse_code(&data)?,
+        })
+    }
+
     pub fn parse(data: &[u8]) -> Result<(Script, usize)> {
         let (length, offset) = varint::parse(data)?;
         let start = offset as usize;
