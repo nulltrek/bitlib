@@ -117,6 +117,10 @@ impl FromPrimitive for U256 {
 }
 
 impl U256 {
+    pub fn pow(&self, exponent: U256) -> U256 {
+        U256(self.0.pow(exponent.0))
+    }
+
     pub fn to_big_uint(&self) -> BigUint {
         BigUint::from_bytes_be(&self.0.to_big_endian())
     }

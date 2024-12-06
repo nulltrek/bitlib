@@ -1,4 +1,4 @@
-use crate::hashing::Hash;
+use crate::hashing::{hash256, to_hex_str, Hash};
 use crate::network::NetworkError;
 use crate::serialization::{slice_to_array, SerializationError};
 use crate::u256::U256;
@@ -31,6 +31,24 @@ pub struct BlockHeader {
 }
 
 impl BlockHeader {
+    pub fn id(&self) -> String {
+        let hash = hash256(self.serialize())
+            .into_iter()
+            .rev()
+            .collect::<Vec<u8>>();
+        to_hex_str(hash.as_slice())
+    }
+
+    pub fn hash(&self) -> BlockId {
+        BlockId::from(U256::from_hex(&self.id()))
+    }
+
+    pub fn target(&self) -> U256 {
+        let exponent = U256::from_little_endian(&[self.bits[3] - 3]);
+        let coefficient = U256::from_little_endian(&self.bits[0..3]);
+        coefficient * U256::from_big_endian(&[0x01, 0x00]).pow(exponent)
+    }
+
     pub fn parse(data: &[u8]) -> Result<BlockHeader> {
         log::debug!("Parsing block header...");
         let header = BlockHeader {
@@ -43,6 +61,27 @@ impl BlockHeader {
         };
         log::debug!("...done.");
         Ok(header)
+    }
+
+    pub fn check_pow(&self) -> bool {
+        *self.hash() < self.target()
+    }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        let version = self.version.to_le_bytes();
+        let prev_block = self.prev_block.to_little_endian();
+        let merkle_root = self.merkle_root.to_little_endian();
+        let timestamp = self.timestamp.to_le_bytes();
+
+        [
+            version.as_slice(),
+            prev_block.as_slice(),
+            merkle_root.as_slice(),
+            timestamp.as_slice(),
+            self.bits.as_slice(),
+            self.nonce.as_slice(),
+        ]
+        .concat()
     }
 }
 
@@ -82,5 +121,24 @@ mod tests {
         assert_eq!(header.timestamp, 0x59a7771e);
         assert_eq!(header.bits, hex!("e93c0118"));
         assert_eq!(header.nonce, hex!("a4ffd71d"));
+
+        assert_eq!(
+            header.id(),
+            "0000000000000000007e9e4c586439b0cdbe13b1370bdd9435d76a644d047523"
+        );
+
+        assert_eq!(
+            header.target(),
+            U256::from_hex("0000000000000000013ce9000000000000000000000000000000000000000000")
+        );
+
+        assert!(header.check_pow());
+    }
+
+    #[test]
+    fn serializing() {
+        let bytes = hex!("020000208ec39428b17323fa0ddec8e887b4a7c53b8c0a0a220cfd0000000000000000005b0750fce0a889502d40508d39576821155e9c9e3f5c3157f961db38fd8b25be1e77a759e93c0118a4ffd71d");
+        let header = BlockHeader::parse(&bytes).unwrap();
+        assert_eq!(header.serialize(), bytes);
     }
 }
