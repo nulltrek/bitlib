@@ -16,7 +16,7 @@ impl From<TxError> for BuildError {
 
 pub type Result<T> = std::result::Result<T, BuildError>;
 
-struct TxBuilder {
+pub struct TxBuilder {
     tx: Tx,
 }
 
@@ -25,8 +25,10 @@ impl TxBuilder {
         TxBuilder {
             tx: Tx {
                 version: 1,
+                witness_flag: false,
                 inputs: vec![],
                 outputs: vec![],
+                witnesses: vec![],
                 locktime: 0,
             },
         }
@@ -70,7 +72,8 @@ impl P2pkh {
         let pubkey_hash = hash160(&pubkey.to_csec());
 
         let script = [
-            &[0x76, 0xa9], // <script len> OP_DUP OP_HASH160
+            &[0x76, 0xa9], // OP_DUP OP_HASH160
+            [pubkey_hash.len() as u8].as_slice(),
             pubkey_hash.as_slice(),
             &[0x88, 0xac], // OP_EQUALVERIFY OP_CHECKSIG
         ]
@@ -82,7 +85,13 @@ impl P2pkh {
         let der_sig = [signature.to_der().as_slice(), &[flag.to_u8()]].concat();
         let sec_pubkey = pubkey.to_csec();
 
-        let script = [der_sig.as_slice(), sec_pubkey.as_slice()].concat();
+        let script = [
+            [der_sig.len() as u8].as_slice(),
+            der_sig.as_slice(),
+            [sec_pubkey.len() as u8].as_slice(),
+            sec_pubkey.as_slice(),
+        ]
+        .concat();
         Script::from_slice(&script).unwrap()
     }
 }

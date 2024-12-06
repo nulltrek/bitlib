@@ -8,6 +8,7 @@ use core::fmt;
 
 #[derive(Debug)]
 pub enum TxError {
+    InvalidData(String),
     SerializationError(SerializationError),
     InputNotFound(usize),
     Overspending(u64, u64),
@@ -121,7 +122,7 @@ impl fmt::Display for TxInput {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "prev_tx: {}\nprev_tx_index: {}\nscript_sig: {}\nsequence: {}\n",
+            "prev_tx: {}\nprev_tx_index: {}\nscript_sig: {}\nsequence: {}",
             self.prev_tx, self.prev_tx_index, self.script_sig, self.sequence
         )
     }
@@ -160,39 +161,102 @@ impl fmt::Display for TxOutput {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "amount: {}\nscript_pubkey: {}\n",
+            "amount: {}\nscript_pubkey: {}",
             self.amount, self.script_pubkey
         )
     }
 }
 
 #[derive(PartialEq, Debug, Clone)]
+pub struct TxWitness {
+    pub data: Vec<u8>,
+}
+
+impl TxWitness {
+    pub fn parse(data: &[u8]) -> Result<(Self, usize)> {
+        let (witness_size, varint_offset) = varint::parse(&data)?;
+        let start_offset = varint_offset as usize;
+        let end_offset = start_offset + witness_size as usize;
+        let data = data[start_offset..end_offset].to_vec();
+
+        Ok((TxWitness { data }, end_offset))
+    }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        let data_len = varint::encode(self.data.len() as u64);
+        [data_len.as_slice(), self.data.as_slice()].concat()
+    }
+}
+
+impl fmt::Display for TxWitness {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "size: {}\ndata: {}",
+            self.data.len(),
+            to_hex_str(&self.data),
+        )
+    }
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum TxSerType {
+    ExcludeWitness,
+    Full,
+}
+
+#[derive(PartialEq, Debug, Clone)]
 pub struct Tx {
     pub version: u32,
+    pub witness_flag: bool,
     pub inputs: Vec<TxInput>,
     pub outputs: Vec<TxOutput>,
+    pub witnesses: Vec<TxWitness>,
     pub locktime: u32,
 }
 
 impl Tx {
     pub fn id(&self) -> String {
-        let hash = hash256(self.serialize())
+        let hash = hash256(self.serialize(TxSerType::ExcludeWitness))
             .into_iter()
             .rev()
             .collect::<Vec<u8>>();
         to_hex_str(hash.as_slice())
     }
 
+    pub fn wid(&self) -> String {
+        let hash = hash256(self.serialize(TxSerType::Full))
+            .into_iter()
+            .rev()
+            .collect::<Vec<u8>>();
+        to_hex_str(hash.as_slice())
+    }
+
+    pub fn hash(&self) -> TxId {
+        TxId::from(U256::from_hex(&self.id()))
+    }
+
     pub fn parse(data: &[u8]) -> Result<Tx> {
         log::debug!("Parsing transaction...");
         let version = u32::from_le_bytes(slice_to_array(&data[0..4]));
 
-        let mut offset = if data[4] == 0 { 6 } else { 4 };
+        let (witness_flag, mut offset) = match data[4] {
+            0 => {
+                if data[5] != 1 {
+                    return Err(TxError::InvalidData(
+                        "Witness flag is not equal to 0001".to_string(),
+                    ));
+                } else {
+                    (true, 6)
+                }
+            }
+            _ => (false, 4),
+        };
 
         let (input_count, varint_length) = varint::parse(&data[offset..])?;
         offset += varint_length;
         log::debug!("Inputs: {}", input_count);
-        let mut inputs = vec![];
+        let mut inputs = Vec::with_capacity(input_count as usize);
         for _ in 0..input_count {
             let (input, input_length) = TxInput::parse(&data[offset..])?;
             offset += input_length;
@@ -202,27 +266,47 @@ impl Tx {
         let (output_count, varint_length) = varint::parse(&data[offset..])?;
         offset += varint_length;
         log::debug!("Outputs: {}", output_count);
-        let mut outputs = vec![];
+        let mut outputs = Vec::with_capacity(output_count as usize);
         for _ in 0..output_count {
             let (output, output_length) = TxOutput::parse(&data[offset..])?;
             offset += output_length;
             outputs.push(output)
         }
 
+        let mut witnesses = vec![];
+        if witness_flag {
+            let (witness_count, varint_length) = varint::parse(&data[offset..])?;
+            offset += varint_length;
+            log::debug!("Witnesses: {}", witness_count);
+            witnesses = Vec::with_capacity(witness_count as usize);
+            for _ in 0..witness_count {
+                let (witness, witness_length) = TxWitness::parse(&data[offset..])?;
+                offset += witness_length;
+                witnesses.push(witness)
+            }
+        }
+
         let locktime = u32::from_le_bytes(slice_to_array(&data[offset..offset + 4]));
 
         let tx = Tx {
             version,
+            witness_flag,
             inputs,
             outputs,
+            witnesses,
             locktime,
         };
         log::debug!("...done. Transaction id: {}", tx.id());
         Ok(tx)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
+    pub fn serialize(&self, ser_type: TxSerType) -> Vec<u8> {
         let version = self.version.to_le_bytes();
+        let witness_flag = if ser_type == TxSerType::Full && self.witness_flag {
+            vec![0, 1]
+        } else {
+            vec![]
+        };
         let input_count = varint::encode(self.inputs.len() as u64);
         let inputs = self
             .inputs
@@ -237,14 +321,30 @@ impl Tx {
             .map(|e| e.serialize())
             .collect::<Vec<_>>()
             .concat();
+
+        let mut witness_count = vec![];
+        let mut witnesses = vec![];
+        if ser_type == TxSerType::Full && self.witness_flag {
+            witness_count = varint::encode(self.witnesses.len() as u64);
+            witnesses = self
+                .witnesses
+                .iter()
+                .map(|e| e.serialize())
+                .collect::<Vec<_>>()
+                .concat();
+        }
+
         let locktime = self.locktime.to_le_bytes();
 
         [
             version.as_slice(),
+            witness_flag.as_slice(),
             input_count.as_slice(),
             inputs.as_slice(),
             output_count.as_slice(),
             outputs.as_slice(),
+            witness_count.as_slice(),
+            witnesses.as_slice(),
             locktime.as_slice(),
         ]
         .concat()
@@ -285,7 +385,11 @@ impl Tx {
                 input.script_sig = Script::default();
             }
         }
-        let bytes = [mod_tx.serialize(), flag.to_u32_little_endian()].concat();
+        let bytes = [
+            mod_tx.serialize(TxSerType::ExcludeWitness),
+            flag.to_u32_little_endian(),
+        ]
+        .concat();
         Ok(Hash::hash256(&bytes))
     }
 
@@ -364,7 +468,12 @@ impl fmt::Display for Tx {
             write!(f, "{}: {}\n", i, tx_out)?;
         }
 
-        write!(f, "locktime: {}\n", self.locktime,)?;
+        write!(f, "tx_witnesses:\n",)?;
+        for (i, tx_wit) in self.witnesses.iter().enumerate() {
+            write!(f, "{}: {}\n", i, tx_wit)?;
+        }
+
+        write!(f, "locktime: {}", self.locktime,)?;
         Ok(())
     }
 }
@@ -373,6 +482,10 @@ impl fmt::Display for Tx {
 mod tests {
     use super::*;
     use hex_literal::hex;
+
+    fn init_logging() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
 
     #[test]
     fn sighash_value() {
@@ -421,6 +534,16 @@ mod tests {
         );
 
         assert_eq!(tx.locktime, 410393);
+    }
+
+    #[test]
+    fn tx_id() {
+        let bytes = hex!("020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff03016500ffffffff0200f2052a010000001976a91422c8b2c2b4df46f13e59a7f05d97f98e34b050af88ac0000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf90120000000000000000000000000000000000000000000000000000000000000000000000000");
+        let tx = Tx::parse(&bytes).unwrap();
+        assert_eq!(
+            tx.id(),
+            "d0531166c7db246651d360dba0a392c34bca06d3bda29ffe5fc7c56c3efd1acf"
+        );
     }
 
     #[test]
@@ -498,15 +621,15 @@ mod tests {
     fn tx_serialization() {
         let bytes = hex!("0100000001813f79011acb80925dfe69b3def355fe914bd1d96a3f5f71bf8303c6a989c7d1000000006b483045022100ed81ff192e75a3fd2304004dcadb746fa5e24c5031ccfcf21320b0277457c98f02207a986d955c6e0cb35d446a89d3f56100f4d7f67801c31967743a9c8e10615bed01210349fc4e631e3624a545de3f89f5d8684c7b8138bd94bdd531d2e213bf016b278afeffffff02a135ef01000000001976a914bc3b654dca7e56b04dca18f2566cdaf02e8d9ada88ac99c39800000000001976a9141c4bc762dd5423e332166702cb75f40df79fea1288ac19430600");
         let tx = Tx::parse(&bytes).unwrap();
-        assert_eq!(tx.serialize(), bytes);
+        assert_eq!(tx.serialize(TxSerType::ExcludeWitness), bytes);
 
         let bytes = hex!("010000000456919960ac691763688d3d3bcea9ad6ecaf875df5339e148a1fc61c6ed7a069e010000006a47304402204585bcdef85e6b1c6af5c2669d4830ff86e42dd205c0e089bc2a821657e951c002201024a10366077f87d6bce1f7100ad8cfa8a064b39d4e8fe4ea13a7b71aa8180f012102f0da57e85eec2934a82a585ea337ce2f4998b50ae699dd79f5880e253dafafb7feffffffeb8f51f4038dc17e6313cf831d4f02281c2a468bde0fafd37f1bf882729e7fd3000000006a47304402207899531a52d59a6de200179928ca900254a36b8dff8bb75f5f5d71b1cdc26125022008b422690b8461cb52c3cc30330b23d574351872b7c361e9aae3649071c1a7160121035d5c93d9ac96881f19ba1f686f15f009ded7c62efe85a872e6a19b43c15a2937feffffff567bf40595119d1bb8a3037c356efd56170b64cbcc160fb028fa10704b45d775000000006a47304402204c7c7818424c7f7911da6cddc59655a70af1cb5eaf17c69dadbfc74ffa0b662f02207599e08bc8023693ad4e9527dc42c34210f7a7d1d1ddfc8492b654a11e7620a0012102158b46fbdff65d0172b7989aec8850aa0dae49abfb84c81ae6e5b251a58ace5cfeffffffd63a5e6c16e620f86f375925b21cabaf736c779f88fd04dcad51d26690f7f345010000006a47304402200633ea0d3314bea0d95b3cd8dadb2ef79ea8331ffe1e61f762c0f6daea0fabde022029f23b3e9c30f080446150b23852028751635dcee2be669c2a1686a4b5edf304012103ffd6f4a67e94aba353a00882e563ff2722eb4cff0ad6006e86ee20dfe7520d55feffffff0251430f00000000001976a914ab0c0b2e98b1ab6dbf67d4750b0a56244948a87988ac005a6202000000001976a9143c82d7df364eb6c75be8c80df2b3eda8db57397088ac46430600");
         let tx = Tx::parse(&bytes).unwrap();
-        assert_eq!(tx.serialize(), bytes);
+        assert_eq!(tx.serialize(TxSerType::ExcludeWitness), bytes);
 
         let bytes = hex!("01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000");
         let tx = Tx::parse(&bytes).unwrap();
-        assert_eq!(tx.serialize(), bytes);
+        assert_eq!(tx.serialize(TxSerType::ExcludeWitness), bytes);
     }
 
     #[test]
@@ -543,10 +666,6 @@ mod tests {
                 .unwrap(),
             Hash::hash256(modified_tx)
         );
-    }
-
-    fn init_logging() {
-        let _ = env_logger::builder().is_test(true).try_init();
     }
 
     #[test]
