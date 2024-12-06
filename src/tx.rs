@@ -350,6 +350,12 @@ impl Tx {
         .concat()
     }
 
+    pub fn is_coinbase(&self) -> bool {
+        self.inputs.len() == 1
+            && (*self.inputs[0].prev_tx).is_zero()
+            && self.inputs[0].prev_tx_index == 0xffffffff
+    }
+
     pub fn fee<F: TxFetcher>(&self, fetcher: &mut F) -> Result<u64> {
         let mut input_value = 0;
         for input in &self.inputs {
@@ -534,6 +540,8 @@ mod tests {
         );
 
         assert_eq!(tx.locktime, 410393);
+
+        assert_eq!(tx.is_coinbase(), false);
     }
 
     #[test]
@@ -563,6 +571,8 @@ mod tests {
         assert_eq!(tx.outputs.len(), 1);
         assert_eq!(tx.outputs[0].amount, 5000000000);
         assert_eq!(tx.locktime, 0);
+
+        assert!(tx.is_coinbase());
     }
 
     use crate::hashing::from_hex_str;
