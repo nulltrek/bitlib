@@ -1,3 +1,4 @@
+pub mod block;
 pub mod builders;
 pub mod curves;
 pub mod definitions;
