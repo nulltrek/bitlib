@@ -12,32 +12,32 @@ use std::path::Path;
 use ureq;
 
 #[derive(Debug)]
-pub enum NetworkError {
+pub enum HttpError {
     RequestError(ureq::Error),
     IoError(std::io::Error),
     ParsingError(serde_json::Error),
     InvalidData,
 }
 
-impl From<ureq::Error> for NetworkError {
+impl From<ureq::Error> for HttpError {
     fn from(error: ureq::Error) -> Self {
-        NetworkError::RequestError(error)
+        HttpError::RequestError(error)
     }
 }
 
-impl From<std::io::Error> for NetworkError {
+impl From<std::io::Error> for HttpError {
     fn from(error: std::io::Error) -> Self {
-        NetworkError::IoError(error)
+        HttpError::IoError(error)
     }
 }
 
-impl From<serde_json::Error> for NetworkError {
+impl From<serde_json::Error> for HttpError {
     fn from(error: serde_json::Error) -> Self {
-        NetworkError::ParsingError(error)
+        HttpError::ParsingError(error)
     }
 }
 
-pub type Result<T> = std::result::Result<T, NetworkError>;
+pub type Result<T> = std::result::Result<T, HttpError>;
 
 pub struct NetFetcher {
     network: Network,
@@ -76,7 +76,7 @@ impl TxFetcher for NetFetcher {
 
         let body = Self::fetch(self.network, &format!("/tx/{}/hex", id))?;
         match from_hex_str(&body) {
-            Err(_) => Err(TxError::NetworkError(NetworkError::InvalidData)),
+            Err(_) => Err(TxError::HttpError(HttpError::InvalidData)),
             Ok(bytes) => {
                 let tx = match Tx::parse(&bytes) {
                     Err(err) => return Err(err),
@@ -176,11 +176,11 @@ impl NodeClient {
     pub fn fetch_block_header(&self, id: &Hash) -> BlockResult<BlockHeader> {
         let body = self.call("getblockheader", json!([&id.to_string(), false]))?;
         let data: RPCResult<String> = match serde_json::from_str(&body) {
-            Err(err) => return Err(BlockError::NetworkError(NetworkError::ParsingError(err))),
+            Err(err) => return Err(BlockError::HttpError(HttpError::ParsingError(err))),
             Ok(data) => data,
         };
         match from_hex_str(&data.result) {
-            Err(_) => Err(BlockError::NetworkError(NetworkError::InvalidData)),
+            Err(_) => Err(BlockError::HttpError(HttpError::InvalidData)),
             Ok(bytes) => {
                 let tx = match BlockHeader::parse(&bytes) {
                     Err(err) => return Err(err),
@@ -198,11 +198,11 @@ impl NodeClient {
             json!([&id.to_string(), false, &block_id.to_string()]),
         )?;
         let data: RPCResult<String> = match serde_json::from_str(&body) {
-            Err(err) => return Err(TxError::NetworkError(NetworkError::ParsingError(err))),
+            Err(err) => return Err(TxError::HttpError(HttpError::ParsingError(err))),
             Ok(data) => data,
         };
         match from_hex_str(&data.result) {
-            Err(_) => Err(TxError::NetworkError(NetworkError::InvalidData)),
+            Err(_) => Err(TxError::HttpError(HttpError::InvalidData)),
             Ok(bytes) => {
                 let tx = match Tx::parse(&bytes) {
                     Err(err) => return Err(err),
@@ -221,7 +221,7 @@ impl NodeClient {
             json!([to_hex_str(tx.serialize(TxSerType::Full))]),
         )?;
         match serde_json::from_str::<RPCResult<String>>(&body) {
-            Err(err) => Err(NetworkError::ParsingError(err)),
+            Err(err) => Err(HttpError::ParsingError(err)),
             Ok(data) => Ok(data.result),
         }
     }

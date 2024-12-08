@@ -1,5 +1,5 @@
 use crate::hashing::{hash256, to_hex_str, Hash};
-use crate::network::NetworkError;
+use crate::http::HttpError;
 use crate::serialization::{slice_to_array, SerializationError};
 use crate::u256::U256;
 use core::fmt;
@@ -7,12 +7,12 @@ use core::fmt;
 #[derive(Debug)]
 pub enum BlockError {
     SerializationError(SerializationError),
-    NetworkError(NetworkError),
+    HttpError(HttpError),
 }
 
-impl From<NetworkError> for BlockError {
-    fn from(error: NetworkError) -> Self {
-        BlockError::NetworkError(error)
+impl From<HttpError> for BlockError {
+    fn from(error: HttpError) -> Self {
+        BlockError::HttpError(error)
     }
 }
 

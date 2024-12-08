@@ -1,6 +1,6 @@
 use crate::ecdsa::{PrivateKey, Secp256k1, Signature};
 use crate::hashing::{hash256, to_hex_str, Hash};
-use crate::network::NetworkError;
+use crate::http::HttpError;
 use crate::script::{self, Script};
 use crate::serialization::{slice_to_array, varint, SerializationError};
 use crate::u256::U256;
@@ -12,7 +12,7 @@ pub enum TxError {
     SerializationError(SerializationError),
     InputNotFound(usize),
     Overspending(u64, u64),
-    NetworkError(NetworkError),
+    HttpError(HttpError),
     GenericError,
 }
 
@@ -22,9 +22,9 @@ impl From<SerializationError> for TxError {
     }
 }
 
-impl From<NetworkError> for TxError {
-    fn from(error: NetworkError) -> Self {
-        TxError::NetworkError(error)
+impl From<HttpError> for TxError {
+    fn from(error: HttpError) -> Self {
+        TxError::HttpError(error)
     }
 }
 
@@ -711,7 +711,7 @@ mod tests {
     fn tx_verification_p2sh() {
         init_logging();
         use crate::definitions::Network;
-        use crate::network::NetFetcher;
+        use crate::http::NetFetcher;
         let mut fetcher = NetFetcher::new(Network::Main);
         let tx = fetcher
             .fetch_tx(&Hash::from(U256::from_hex(

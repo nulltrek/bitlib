@@ -3,7 +3,7 @@ use bitlib::builders::TxBuilder;
 use bitlib::definitions::{Compression, Network};
 use bitlib::ecdsa::{PrivateKey, Secp256k1};
 use bitlib::hashing::hash256;
-use bitlib::network::{NetworkError, NodeClient};
+use bitlib::http::{HttpError, NodeClient};
 use bitlib::tx::{TxFetcher, TxId};
 use bitlib::u256::U256;
 use std::env;
@@ -49,7 +49,7 @@ fn main() {
 
     let result = client.send_tx(&tx);
     match result {
-        Err(NetworkError::RequestError(Error::Status(code, response))) => {
+        Err(HttpError::RequestError(Error::Status(code, response))) => {
             println!("{} - {:?}", code, response.into_string())
         }
         other => println!("{:?}", other),

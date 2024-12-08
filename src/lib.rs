@@ -5,7 +5,7 @@ pub mod definitions;
 pub mod ecdsa;
 pub mod fields;
 pub mod hashing;
-pub mod network;
+pub mod http;
 pub mod script;
 pub mod serialization;
 pub mod tx;
