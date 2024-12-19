@@ -6,13 +6,20 @@ use crate::ecdsa::{PrivateKey, Signature};
 use crate::fields::FiniteFieldU256;
 use crate::hashing::{base58, base58_with_checksum, hash160};
 use crate::u256::U256;
+use std::io::{self, Read};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SerializationError {
-    ParsingError(&'static str),
+    ParsingError(String),
     NotEnoughData,
     InvalidOpcode(u8),
     InvalidState,
+}
+
+impl From<io::Error> for SerializationError {
+    fn from(error: io::Error) -> Self {
+        SerializationError::ParsingError(error.to_string())
+    }
 }
 
 pub type Result<T> = std::result::Result<T, SerializationError>;
@@ -147,20 +154,28 @@ impl Signature {
 
     pub fn parse(data: &[u8]) -> Result<Self> {
         if data.len() < 2 {
-            return Err(SerializationError::ParsingError("Data too short"));
+            return Err(SerializationError::ParsingError(
+                "Data too short".to_owned(),
+            ));
         }
 
         if data[0] != 0x30 {
-            return Err(SerializationError::ParsingError("Bad initial marker"));
+            return Err(SerializationError::ParsingError(
+                "Bad initial marker".to_owned(),
+            ));
         }
 
         let tot_len = data[1] as usize;
         if data.len() != 2 + tot_len {
-            return Err(SerializationError::ParsingError("Bad signature length"));
+            return Err(SerializationError::ParsingError(
+                "Bad signature length".to_owned(),
+            ));
         }
 
         if data[2] != 0x02 {
-            return Err(SerializationError::ParsingError("Bad marker for r"));
+            return Err(SerializationError::ParsingError(
+                "Bad marker for r".to_owned(),
+            ));
         }
         let len = data[3] as usize;
         let (r_start, r_len, pad_len) = match len {
@@ -174,7 +189,9 @@ impl Signature {
         .concat();
 
         if data[r_start + r_len] != 0x02 {
-            return Err(SerializationError::ParsingError("Bad marker for s"));
+            return Err(SerializationError::ParsingError(
+                "Bad marker for s".to_owned(),
+            ));
         }
         let len = data[r_start + r_len + 1] as usize;
         let (s_start, s_len, pad_len) = match len {
@@ -254,6 +271,26 @@ pub mod varint {
         Ok((u64::from_le_bytes(result), bytes_read))
     }
 
+    pub fn parse_stream<Reader: Read>(stream: &mut Reader) -> Result<u64> {
+        let mut data = [0; 8];
+        if let Err(error) = stream.read_exact(&mut data[0..1]) {
+            return Err(SerializationError::ParsingError(error.to_string()));
+        }
+
+        let size = match data[0] {
+            0xfd => 2,
+            0xfe => 4,
+            0xff => 8,
+            _ => return Ok(data[0] as u64),
+        };
+
+        if let Err(error) = stream.read_exact(&mut data[0..size]) {
+            return Err(SerializationError::ParsingError(error.to_string()));
+        }
+
+        Ok(u64::from_le_bytes(data))
+    }
+
     pub fn encode(num: u64) -> Vec<u8> {
         if num < 0xfd {
             vec![num.to_le_bytes()[0]]
@@ -267,10 +304,39 @@ pub mod varint {
     }
 }
 
+pub mod varstr {
+    use super::*;
+
+    pub fn parse<Reader: Read>(stream: &mut Reader) -> Result<String> {
+        let length = varint::parse_stream(stream)?;
+        let string = if length > 0 {
+            let mut data = vec![0; length as usize];
+            stream.read_exact(&mut data)?;
+            String::from_utf8(data).unwrap()
+        } else {
+            String::new()
+        };
+        Ok(string)
+    }
+
+    pub fn encode(string: &str) -> Vec<u8> {
+        [
+            varint::encode(string.len() as u64).as_slice(),
+            string.as_bytes(),
+        ]
+        .concat()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ecdsa::{PrivateKey, Secp256k1};
+    use hex_literal::hex;
+
+    fn init_logging() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
 
     #[test]
     fn slice_array_conversion() {
@@ -699,5 +765,17 @@ mod tests {
             assert!(result.is_ok());
             assert_eq!(result.unwrap().0, num);
         }
+    }
+
+    #[test]
+    fn parse_varstr() {
+        let result = varstr::parse(&mut hex!("0f2f5361746f7368693a302e372e322f").as_slice());
+        assert_eq!(result, Ok("/Satoshi:0.7.2/".to_owned()));
+    }
+
+    #[test]
+    fn encode_parse_varstr() {
+        let result = varstr::parse(&mut varstr::encode("/Satoshi:0.7.2/").as_slice());
+        assert_eq!(result, Ok("/Satoshi:0.7.2/".to_owned()));
     }
 }

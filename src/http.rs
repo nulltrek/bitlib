@@ -214,7 +214,6 @@ impl NodeClient {
     }
 
     pub fn send_tx(&self, tx: &Tx) -> Result<String> {
-        println!("{}", to_hex_str(tx.serialize(TxSerType::Full)));
         log::info!("Sending tx to node: {}", tx.id());
         let body = self.call(
             "sendrawtransaction",

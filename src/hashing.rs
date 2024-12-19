@@ -90,6 +90,9 @@ impl Default for Hash {
 }
 
 impl Hash {
+    pub fn new(value: U256) -> Hash {
+        Hash(value)
+    }
     pub fn hash256(data: impl AsRef<[u8]>) -> Hash {
         Hash(U256::from_big_endian(hash256(data).as_slice()))
     }
