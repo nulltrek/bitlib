@@ -20,14 +20,14 @@ pub type Result<T> = std::result::Result<T, BlockError>;
 
 pub type BlockId = Hash;
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub struct BlockHeader {
-    version: u32,
-    prev_block: BlockId,
-    merkle_root: Hash,
-    timestamp: u32,
-    bits: [u8; 4],
-    nonce: [u8; 4],
+    pub version: u32,
+    pub prev_block: BlockId,
+    pub merkle_root: Hash,
+    pub timestamp: u32,
+    pub bits: [u8; 4],
+    pub nonce: [u8; 4],
 }
 
 impl BlockHeader {

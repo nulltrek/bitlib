@@ -211,10 +211,10 @@ impl NetAddr {
 
 impl fmt::Display for NetAddr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Net Address\n");
+        write!(f, "Net Address\n")?;
 
         if let Some(time) = self.time {
-            write!(f, "time: {}", time);
+            write!(f, "time: {}", time)?;
         }
 
         write!(
@@ -386,6 +386,35 @@ impl GetHeadersMessage {
     }
 }
 
+pub struct HeadersMessage {
+    pub headers: Vec<BlockHeader>,
+}
+
+impl HeadersMessage {
+    pub fn parse<Reader: Read>(stream: &mut Reader) -> Result<HeadersMessage> {
+        let num_headers = varint::parse_stream(stream)? as usize;
+
+        let mut headers = vec![];
+        let mut data = [0; 81];
+        for _ in 0..num_headers {
+            stream.read_exact(&mut data)?;
+
+            // The number of transactions must be zero
+            if data[80] != 0 {
+                return Err(NetworkError::ParsingError(None));
+            }
+
+            let block = match BlockHeader::parse(&data) {
+                Err(_) => return Err(NetworkError::ParsingError(None)),
+                Ok(block) => block,
+            };
+            headers.push(block);
+        }
+
+        Ok(HeadersMessage { headers })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,5 +518,25 @@ mod tests {
         assert_eq!(message.end_block, BlockId::new(U256::default()));
 
         assert_eq!(message.serialize(), bytes);
+    }
+
+    #[test]
+    fn headers_message() {
+        let bytes = hex!(
+            "02
+            020000208ec39428b17323fa0ddec8e887b4a7c53b8c0a0a220cfd0000000000000000005b0750fce0a889502d40508d39576821155e9c9e3f5c3157f961db38fd8b25be1e77a759e93c0118a4ffd71d00
+            020000208ec39428b17323fa0ddec8e887b4a7c53b8c0a0a220cfd0000000000000000005b0750fce0a889502d40508d39576821155e9c9e3f5c3157f961db38fd8b25be1e77a759e93c0118a4ffd71d00"
+        );
+        let message = HeadersMessage::parse(&mut bytes.as_slice()).unwrap();
+        assert_eq!(message.headers.len(), 2);
+        assert_eq!(message.headers[0], message.headers[1]);
+        let header = &message.headers[0];
+        assert_eq!(header.version, 0x20000002);
+        assert_eq!(
+            header.prev_block,
+            BlockId::from(U256::from_hex(
+                "000000000000000000fd0c220a0a8c3bc5a7b487e8c8de0dfa2373b12894c38e"
+            ))
+        );
     }
 }
