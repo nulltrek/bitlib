@@ -99,6 +99,10 @@ impl Hash {
     pub fn to_string(&self) -> String {
         to_hex_str(self.0.to_big_endian())
     }
+
+    pub fn reverse(&self) -> Hash {
+        Hash(U256::from_big_endian(&self.to_little_endian()))
+    }
 }
 
 impl From<U256> for Hash {

@@ -1,8 +1,9 @@
-use crate::block::BlockHeader;
-use crate::block::BlockId;
+use crate::block::{BlockHeader, BlockId};
 use crate::definitions::Network;
 use crate::hashing::{hash256, to_hex_str};
+use crate::merkle::{Bitfield, MerkleTree};
 use crate::serialization::{slice_to_array, varint, varstr, SerializationError};
+use crate::tx::TxId;
 use crate::u256::U256;
 use std::fmt;
 use std::io::{self, Read};
@@ -415,6 +416,54 @@ impl HeadersMessage {
     }
 }
 
+pub struct MerkleBlockMessage {
+    pub header: BlockHeader,
+    total_txs: u32,
+    hashes: Vec<TxId>,
+    flags: Vec<u8>,
+}
+
+impl MerkleBlockMessage {
+    pub fn parse<Reader: Read>(stream: &mut Reader) -> Result<MerkleBlockMessage> {
+        let mut data = [0; 80];
+        stream.read_exact(&mut data)?;
+        let header = match BlockHeader::parse(&data) {
+            Err(_) => return Err(NetworkError::ParsingError(None)),
+            Ok(block) => block,
+        };
+
+        stream.read_exact(&mut data[0..4])?;
+
+        let total_txs = u32::from_le_bytes(slice_to_array(&data[0..4]));
+        let num_hashes = varint::parse_stream(stream)?;
+        let mut hashes = vec![];
+        for _ in 0..num_hashes {
+            stream.read_exact(&mut data[0..32])?;
+            let hash = TxId::new(U256::from_little_endian(&data[0..32]));
+            hashes.push(hash);
+        }
+
+        let flag_bytes = varint::parse_stream(stream)? as usize;
+        stream.read_exact(&mut data[0..flag_bytes])?;
+        let flags = data[0..flag_bytes].to_vec();
+
+        Ok(MerkleBlockMessage {
+            header,
+            total_txs,
+            hashes,
+            flags,
+        })
+    }
+
+    pub fn is_valid(&self) -> bool {
+        let flags = Bitfield::from_little_endian(&self.flags);
+        let hashes: Vec<TxId> = self.hashes.iter().map(|h| h.reverse()).collect();
+        let tree = MerkleTree::new(self.total_txs as usize);
+        let root = tree.hash(&flags, &hashes);
+        root.reverse() == self.header.merkle_root
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -538,5 +587,84 @@ mod tests {
                 "000000000000000000fd0c220a0a8c3bc5a7b487e8c8de0dfa2373b12894c38e"
             ))
         );
+    }
+
+    #[test]
+    fn merkle_block_message() {
+        let bytes = hex!(
+            "00000020df3b053dc46f162a9b00c7f0d5124e2676d47bbe7c5d0793a500000000000000ef445fef2ed495c275892206ca533e7411907971013ab83e3b47bd0d692d14d4dc7c835b67d8001ac157e670bf0d00000aba412a0d1480e370173072c9562becffe87aa661c1e4a6dbc305d38ec5dc088a7cf92e6458aca7b32edae818f9c2c98c37e06bf72ae0ce80649a38655ee1e27d34d9421d940b16732f24b94023e9d572a7f9ab8023434a4feb532d2adfc8c2c2158785d1bd04eb99df2e86c54bc13e139862897217400def5d72c280222c4cbaee7261831e1550dbb8fa82853e9fe506fc5fda3f7b919d8fe74b6282f92763cef8e625f977af7c8619c32a369b832bc2d051ecd9c73c51e76370ceabd4f25097c256597fa898d404ed53425de608ac6bfe426f6e2bb457f1c554866eb69dcb8d6bf6f880e9a59b3cd053e6c7060eeacaacf4dac6697dac20e4bd3f38a2ea2543d1ab7953e3430790a9f81e1c67f5b58c825acf46bd02848384eebe9af917274cdfbb1a28a5d58a23a17977def0de10d644258d9c54f886d47d293a411cb6226103b55635"
+        );
+        let message = MerkleBlockMessage::parse(&mut bytes.as_slice()).unwrap();
+        assert_eq!(message.header.version, 0x20000000);
+        assert_eq!(
+            message.header.merkle_root,
+            U256::from_little_endian(&hex!(
+                "ef445fef2ed495c275892206ca533e7411907971013ab83e3b47bd0d692d14d4"
+            ))
+            .into()
+        );
+        assert_eq!(
+            message.header.prev_block,
+            U256::from_little_endian(&hex!(
+                "df3b053dc46f162a9b00c7f0d5124e2676d47bbe7c5d0793a500000000000000"
+            ))
+            .into()
+        );
+        assert_eq!(
+            message.header.timestamp,
+            u32::from_le_bytes(hex!("dc7c835b"))
+        );
+        assert_eq!(message.header.bits, hex!("67d8001a"));
+        assert_eq!(message.header.nonce, hex!("c157e670"));
+
+        assert_eq!(message.total_txs, u32::from_le_bytes(hex!("bf0d0000")));
+
+        let hashes: [TxId; 10] = [
+            U256::from_little_endian(&hex!(
+                "ba412a0d1480e370173072c9562becffe87aa661c1e4a6dbc305d38ec5dc088a"
+            ))
+            .into(),
+            U256::from_little_endian(&hex!(
+                "7cf92e6458aca7b32edae818f9c2c98c37e06bf72ae0ce80649a38655ee1e27d"
+            ))
+            .into(),
+            U256::from_little_endian(&hex!(
+                "34d9421d940b16732f24b94023e9d572a7f9ab8023434a4feb532d2adfc8c2c2"
+            ))
+            .into(),
+            U256::from_little_endian(&hex!(
+                "158785d1bd04eb99df2e86c54bc13e139862897217400def5d72c280222c4cba"
+            ))
+            .into(),
+            U256::from_little_endian(&hex!(
+                "ee7261831e1550dbb8fa82853e9fe506fc5fda3f7b919d8fe74b6282f92763ce"
+            ))
+            .into(),
+            U256::from_little_endian(&hex!(
+                "f8e625f977af7c8619c32a369b832bc2d051ecd9c73c51e76370ceabd4f25097"
+            ))
+            .into(),
+            U256::from_little_endian(&hex!(
+                "c256597fa898d404ed53425de608ac6bfe426f6e2bb457f1c554866eb69dcb8d"
+            ))
+            .into(),
+            U256::from_little_endian(&hex!(
+                "6bf6f880e9a59b3cd053e6c7060eeacaacf4dac6697dac20e4bd3f38a2ea2543"
+            ))
+            .into(),
+            U256::from_little_endian(&hex!(
+                "d1ab7953e3430790a9f81e1c67f5b58c825acf46bd02848384eebe9af917274c"
+            ))
+            .into(),
+            U256::from_little_endian(&hex!(
+                "dfbb1a28a5d58a23a17977def0de10d644258d9c54f886d47d293a411cb62261"
+            ))
+            .into(),
+        ];
+
+        assert_eq!(message.hashes, hashes);
+        assert_eq!(message.flags, hex!("b55635").to_vec());
+
+        assert!(message.is_valid());
     }
 }

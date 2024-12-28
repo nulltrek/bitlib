@@ -3,15 +3,30 @@ use crate::tx::TxId;
 use crate::u256::U256;
 use std::ops::Range;
 
-struct Bitfield {
+pub struct Bitfield {
     bytes: Vec<u8>,
 }
 
 impl Bitfield {
-    fn new(bytes: &[u8]) -> Self {
+    pub fn new(bytes: &[u8]) -> Self {
         Self {
             bytes: bytes.to_vec(),
         }
+    }
+
+    pub fn from_little_endian(bytes: &[u8]) -> Self {
+        let mut bit_field = Vec::<u8>::with_capacity(bytes.len());
+        for byte in bytes {
+            let mut byte = *byte;
+            let mut rev_byte: u8 = 0;
+            for i in 0..8 {
+                let val = byte & 1;
+                byte = byte >> 1;
+                rev_byte = rev_byte | val << (7 - i);
+            }
+            bit_field.push(rev_byte);
+        }
+        Self { bytes: bit_field }
     }
 
     fn get(&self, i: usize) -> Option<bool> {
@@ -28,7 +43,7 @@ fn range_split(range: Range<usize>) -> (Range<usize>, Range<usize>) {
     ((range.start..split), (split..range.end))
 }
 
-struct MerkleTree {
+pub struct MerkleTree {
     leaf_count: usize,
     max_leaf_count: usize,
 }
@@ -138,6 +153,7 @@ impl MerkleTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hex_literal::hex;
 
     fn init_logging() {
         let _ = env_logger::builder().is_test(true).try_init();
@@ -186,6 +202,12 @@ mod tests {
 
         assert_eq!(bf.get(16), None);
         assert_eq!(bf.get(20), None);
+    }
+
+    #[test]
+    fn bitfield_little_endian() {
+        let bf = Bitfield::from_little_endian(&hex!("b55635"));
+        assert_eq!(bf.bytes, &[0b10101101, 0b01101010, 0b10101100]);
     }
 
     #[test]
